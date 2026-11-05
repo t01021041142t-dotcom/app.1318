@@ -1,268 +1,296 @@
-"""장보기 알림메모 — 실행: streamlit run app.py
-GitHub에 app.py와 requirements.txt를 올리고 Streamlit Community Cloud에서 배포하세요.
-배포 후 ⋯ 버튼에서 앱 공개 URL을 입력하면 같은 장보기를 여는 QR을 생성합니다.
-주의: SQLite는 실행 서버의 로컬 저장소입니다. Cloud 재시작/재배포 시 유실될 수
-있으므로 영구 보관 서비스가 아닙니다. 링크 보유자는 같은 목록을 조회/수정합니다.
+"""가족 일정 알림판
+실행: streamlit run app.py
+GitHub에 app.py와 requirements.txt를 올리고 Streamlit Community Cloud에서 배포.
+⋯ 메뉴에 배포 주소를 넣으면 같은 가족 게시판으로 연결되는 QR 생성.
+SQLite 로컬 저장: 서버 초기화/재배포 시 유실 가능. 중요 기록은 JSON 백업.
+링크 소지자는 모든 일정 조회/수정 가능. 의료정보 등 민감한 내용 입력 금지.
+앱 내 알림만 제공하며 앱 종료 중 푸시/문자 알림은 제공하지 않음.
 """
 from __future__ import annotations
-
 import csv
 import io
+import json
 import os
 import sqlite3
 import uuid
-from decimal import Decimal, ROUND_HALF_UP
+from datetime import datetime, date, time, timedelta
 from urllib.parse import urlsplit, urlunsplit, urlencode, parse_qsl
-
+from zoneinfo import ZoneInfo
 import qrcode
 import streamlit as st
 
-st.set_page_config(page_title="장보기 알림메모", page_icon="🛒", layout="centered", initial_sidebar_state="collapsed")
-DB_PATH = os.environ.get("SHOPPING_DB_PATH", "shopping.sqlite3")
-CATEGORIES = ["🥬 야채", "🍎 과일", "🥩 육류", "🐟 수산물", "🥛 유제품·달걀", "🍚 곡류·식재료", "🥫 가공식품", "🧴 생활용품", "🧺 기타"]
-PRIORITY = {1: "1 · 필수", 2: "2 · 필요", 3: "3 · 여유"}
+st.set_page_config(page_title='우리집 일정', page_icon='📅', layout='centered', initial_sidebar_state='collapsed')
+DB_PATH = os.environ.get('FAMILY_DB_PATH', 'family_board.sqlite3')
+TZ = ZoneInfo('Asia/Seoul')
+CATEGORIES = ['🏥 병원', '👨‍👩‍👧 가족 모임', '🏡 방문', '🧳 외출·여행', '🎂 기념일', '📌 기타']
+IMPORTANCE = {1: '꼭 챙겨요', 2: '기억해요', 3: '참고해요'}
 
 
-def connection():
-    con = sqlite3.connect(DB_PATH, timeout=20)
-    con.row_factory = sqlite3.Row
-    return con
+def connect():
+    db = sqlite3.connect(DB_PATH, timeout=20)
+    db.row_factory = sqlite3.Row
+    return db
 
 
 def initialize():
-    with connection() as con:
-        con.execute("""CREATE TABLE IF NOT EXISTS items (
-            id TEXT PRIMARY KEY, list_id TEXT NOT NULL, category TEXT NOT NULL,
-            name TEXT NOT NULL, priority INTEGER NOT NULL CHECK(priority BETWEEN 1 AND 3),
-            planned_qty REAL NOT NULL CHECK(planned_qty > 0), unit TEXT NOT NULL,
-            ceiling INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT '',
-            status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','deferred','bought')),
-            price INTEGER NOT NULL DEFAULT 0 CHECK(price >= 0),
-            quantity REAL NOT NULL DEFAULT 0 CHECK(quantity >= 0),
-            total INTEGER NOT NULL DEFAULT 0 CHECK(total >= 0),
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_list ON items(list_id)")
+    with connect() as db:
+        db.execute('''CREATE TABLE IF NOT EXISTS events (
+        id TEXT PRIMARY KEY, board TEXT NOT NULL, title TEXT NOT NULL,
+        category TEXT NOT NULL, starts TEXT NOT NULL, place TEXT NOT NULL DEFAULT '',
+        people TEXT NOT NULL DEFAULT '', prep TEXT NOT NULL DEFAULT '',
+        importance INTEGER NOT NULL CHECK(importance BETWEEN 1 AND 3),
+        done INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+        db.execute('''CREATE TABLE IF NOT EXISTS acknowledgements (
+        event_id TEXT NOT NULL, board TEXT NOT NULL, person TEXT NOT NULL,
+        confirmed TEXT NOT NULL, PRIMARY KEY(event_id,board,person))''')
+        db.execute('CREATE INDEX IF NOT EXISTS board_events ON events(board,starts)')
 
 
-def records(list_id):
-    with connection() as con:
-        return [dict(r) for r in con.execute(
-            "SELECT * FROM items WHERE list_id=? ORDER BY priority, created_at, rowid", (list_id,))]
+def change(sql, args):
+    with connect() as db:
+        return db.execute(sql, args).rowcount
 
 
-def amount(price, quantity):
-    return int((Decimal(str(price)) * Decimal(str(quantity))).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+def events(board):
+    with connect() as db:
+        return [dict(r) for r in db.execute('SELECT * FROM events WHERE board=? ORDER BY starts,importance,created', (board,))]
 
 
-def mutate(sql, params):
-    with connection() as con:
-        cur = con.execute(sql, params)
-        return cur.rowcount
+def confirmations(eid, board):
+    with connect() as db:
+        return [r['person'] for r in db.execute('SELECT person FROM acknowledgements WHERE event_id=? AND board=? ORDER BY confirmed', (eid, board))]
 
 
-def safe_url(base, list_id):
-    parts = urlsplit(base.strip())
-    if parts.scheme not in ('https', 'http') or not parts.netloc or parts.username or parts.password:
+def remove(eid, board):
+    with connect() as db:
+        db.execute('DELETE FROM acknowledgements WHERE event_id=? AND board=?', (eid, board))
+        db.execute('DELETE FROM events WHERE id=? AND board=?', (eid, board))
+
+
+def share_url(base, board):
+    p = urlsplit(base.strip())
+    if p.scheme not in ('https','http') or not p.netloc or p.username or p.password:
         raise ValueError('https:// 로 시작하는 배포 앱 주소를 입력하세요.')
-    query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != 'list']
-    query.append(('list', list_id))
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ''))
+    query = [(k,v) for k,v in parse_qsl(p.query, keep_blank_values=True) if k != 'family']
+    query.append(('family',board))
+    return urlunsplit((p.scheme,p.netloc,p.path,urlencode(query),''))
+
+
+def starts(e):
+    return datetime.fromisoformat(e['starts']).replace(tzinfo=TZ)
+
+
+def date_label(e):
+    dt = starts(e)
+    return dt.strftime('%m/%d') + ' (' + '월화수목금토일'[dt.weekday()] + ') ' + dt.strftime('%H:%M')
 
 
 initialize()
-raw_id = st.query_params.get('list', '')
 try:
-    list_id = str(uuid.UUID(raw_id))
-except (ValueError, TypeError, AttributeError):
-    list_id = str(uuid.uuid4())
-    st.query_params['list'] = list_id
+    board = str(uuid.UUID(st.query_params.get('family','')))
+except (ValueError,TypeError,AttributeError):
+    board = str(uuid.uuid4())
+    st.query_params['family'] = board
 
 st.markdown('''<style>
-.block-container {max-width:520px; padding:0.8rem 0.8rem 1rem;}
+.block-container {max-width:540px; padding:0.65rem 0.8rem 1rem;}
 header[data-testid="stHeader"] {height:0; min-height:0;}
-.stMainBlockContainer {padding-top:0.8rem;}
 [data-testid="stVerticalBlock"] {gap:0.48rem;}
-h1 {font-size:1.45rem!important; padding:0!important;}
-p {margin-bottom:0.3rem;}
-[data-testid="stMetricValue"] {font-size:1.6rem;}
-[data-testid="stMetricLabel"] {font-size:0.8rem;}
-.stButton button {min-height:2.65rem; border-radius:12px;}
-[data-testid="stForm"] {padding:0.65rem;}
-@media (max-width:600px) {
- .block-container {padding-top:0.5rem;}
- [data-testid="stHorizontalBlock"] {gap:0.4rem;}
- [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {min-width:0!important;}
+h1 {font-size:1.6rem!important;padding:0!important;}
+h3 {font-size:1.35rem!important;}
+p {font-size:1.05rem;margin-bottom:0.3rem;}
+.stButton button {min-height:48px;border-radius:12px;font-size:1.05rem;}
+[data-testid="stMetricValue"] {font-size:1.35rem;}
+@media(max-width:600px){
+[data-testid="stHorizontalBlock"] {gap:0.4rem;}
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {min-width:0!important;}
 }
 </style>''', unsafe_allow_html=True)
 
 
-@st.dialog('➕ 장볼 상품 추가')
-def add_item():
-    with st.form('add_form', clear_on_submit=False):
-        category = st.selectbox('카테고리', CATEGORIES)
-        name = st.text_input('상품명 *', max_chars=60, placeholder='예: 대파, 사과, 두부')
-        a, b = st.columns(2)
-        priority = a.selectbox('중요도', [1, 2, 3], format_func=lambda x: PRIORITY[x], index=1)
-        qty = b.number_input('예정 수량', min_value=0.01, max_value=99999.0, value=1.0, step=1.0)
-        a, b = st.columns(2)
-        unit = a.selectbox('단위', ['개', '봉', '팩', 'kg', 'g', 'L', '묶음', '상자'])
-        ceiling = b.number_input('단가 상한(원, 0=없음)', min_value=0, max_value=100000000, step=100)
-        note = st.text_input('메모', max_chars=120, placeholder='예: 비싸면 다음에 / 국거리용')
-        submitted = st.form_submit_button('메모 추가', use_container_width=True, type='primary')
+@st.dialog('📅 일정 등록·수정')
+def editor(item=None):
+    now = datetime.now(TZ)
+    old_dt = starts(item) if item else now + timedelta(hours=1)
+    with st.form('event_editor'):
+        title = st.text_input('일정 이름 *', value=item['title'] if item else '', max_chars=60, placeholder='예: 치과 진료')
+        category = st.selectbox('종류', CATEGORIES, index=CATEGORIES.index(item['category']) if item else 0)
+        a,b = st.columns(2)
+        day = a.date_input('날짜', value=old_dt.date(), min_value=date(2000,1,1), max_value=date(2100,12,31))
+        clock = b.time_input('시간', value=old_dt.time().replace(second=0,microsecond=0,tzinfo=None), step=300)
+        place = st.text_input('장소', value=item['place'] if item else '', max_chars=100)
+        people = st.text_input('참석하는 가족', value=item['people'] if item else '', max_chars=100, placeholder='예: 엄마, 아빠, 민수')
+        prep = st.text_area('준비물·메모', value=item['prep'] if item else '', max_chars=400, height=90, placeholder='예: 신분증, 진료카드 챙기기')
+        priority = st.selectbox('중요도', [1,2,3], index=(item['importance']-1) if item else 1, format_func=lambda n: f'{n} · {IMPORTANCE[n]}')
+        submitted = st.form_submit_button('저장하기', type='primary', use_container_width=True)
     if submitted:
-        if not name.strip():
-            st.error('상품명을 입력해 주세요.')
+        if not title.strip():
+            st.error('일정 이름을 입력해 주세요.')
             return
-        mutate('''INSERT INTO items (id,list_id,category,name,priority,planned_qty,unit,ceiling,note)
-                  VALUES (?,?,?,?,?,?,?,?,?)''',
-               (str(uuid.uuid4()), list_id, category, name.strip(), priority, qty, unit, ceiling, note.strip()))
-        st.rerun()
-
-
-@st.dialog('🛒 카트에 담기')
-def purchase(item):
-    st.write(f"**{item['name']}** · {PRIORITY[item['priority']]}")
-    if item['ceiling']:
-        st.caption(f"설정한 단가 상한: {item['ceiling']:,}원 / {item['unit']}")
-    st.caption('가격은 한 단위 기준입니다. 묶음 전체 가격이라면 수량을 1로 입력하세요.')
-    price = st.number_input(f"실제 단가(원/{item['unit']})", min_value=0, max_value=100000000,
-                            value=int(item['price']), step=100, key=f"price_{item['id']}")
-    quantity = st.number_input(f"실제 수량({item['unit']})", min_value=0.01, max_value=99999.0,
-                               value=float(item['planned_qty']), step=1.0, key=f"qty_{item['id']}")
-    total = amount(price, quantity)
-    st.info(f'이번 상품 합계: {total:,}원')
-    expensive = bool(item['ceiling'] and price > item['ceiling'])
-    if expensive:
-        st.warning('설정한 단가 상한보다 비싸요. 지금 사지 않고 보류해도 괜찮아요.')
-        approved = st.checkbox('상한 초과를 확인했고 이번에는 구매할게요', key=f"approve_{item['id']}")
-    else:
-        approved = True
-    a, b = st.columns(2)
-    if a.button('구매 확정', type='primary', use_container_width=True, disabled=not approved):
-        changed = mutate("""UPDATE items SET status='bought',price=?,quantity=?,total=?
-                            WHERE id=? AND list_id=? AND status IN ('pending','deferred')""",
-                         (price, quantity, total, item['id'], list_id))
-        if not changed:
-            st.warning('다른 화면에서 변경된 상품입니다. 메인 화면을 새로고침해 주세요.')
+        values = (title.strip(),category,datetime.combine(day,clock).isoformat(timespec='minutes'),place.strip(),people.strip(),prep.strip(),priority)
+        if item:
+            changed = change('UPDATE events SET title=?,category=?,starts=?,place=?,people=?,prep=?,importance=? WHERE id=? AND board=?', values+(item['id'],board))
+            if not changed:
+                st.error('이미 삭제된 일정입니다. 메인 화면을 새로고침해 주세요.')
+                return
+            # 변경된 일정은 가족이 다시 확인하도록 확인 기록 초기화
+            change('DELETE FROM acknowledgements WHERE event_id=? AND board=?',(item['id'],board))
         else:
+            change('INSERT INTO events(title,category,starts,place,people,prep,importance,id,board) VALUES(?,?,?,?,?,?,?,?,?)',values+(str(uuid.uuid4()),board))
+        st.rerun()
+    if item:
+        st.caption('일정을 수정하면 가족 확인 기록이 초기화됩니다.')
+        agreed = st.checkbox('이 일정을 완전히 삭제할게요')
+        if st.button('일정 삭제', disabled=not agreed, use_container_width=True):
+            remove(item['id'],board)
             st.rerun()
-    if b.button('비싸서 보류', use_container_width=True):
-        mutate("UPDATE items SET status='deferred' WHERE id=? AND list_id=? AND status!='bought'", (item['id'], list_id))
+
+
+@st.dialog('✅ 일정 확인')
+def confirm_event(item):
+    st.write(f"**{item['title']}**")
+    st.caption('가족 각자가 같은 이름을 사용하면 확인 여부를 구분할 수 있어요. 이름은 이 기기에서만 기억합니다.')
+    name = st.text_input('내 이름 또는 호칭', value=st.session_state.get('person',''), max_chars=20, placeholder='예: 엄마')
+    if st.button('확인했어요', type='primary', use_container_width=True):
+        if not name.strip():
+            st.error('이름을 입력해 주세요.')
+            return
+        with connect() as db:
+            exists = db.execute('SELECT id FROM events WHERE id=? AND board=?',(item['id'],board)).fetchone()
+            if not exists:
+                st.error('이미 삭제된 일정입니다.')
+                return
+            db.execute('INSERT OR REPLACE INTO acknowledgements VALUES(?,?,?,?)',(item['id'],board,name.strip(),datetime.now(TZ).isoformat()))
+        st.session_state['person'] = name.strip()
         st.rerun()
 
 
-@st.dialog('카트 상품 관리')
-def cart_item(item):
-    st.write(f"**{item['name']}**")
-    st.write(f"{item['price']:,}원 × {item['quantity']:g}{item['unit']} = **{item['total']:,}원**")
-    st.caption('잘못 담았거나 가격·수량을 바꾸려면 메모로 되돌린 후 다시 구매 확정하세요.')
-    if st.button('↩ 메모로 되돌리기', use_container_width=True):
-        mutate("UPDATE items SET status='pending',price=0,quantity=0,total=0 WHERE id=? AND list_id=?", (item['id'], list_id))
-        st.rerun()
+def backup(board):
+    with connect() as db:
+        acks = [dict(r) for r in db.execute('SELECT * FROM acknowledgements WHERE board=?',(board,))]
+    return json.dumps({'version':1,'events':events(board),'acknowledgements':acks},ensure_ascii=False,indent=2).encode('utf-8')
 
 
-@st.dialog('메모 삭제')
-def delete_item(item):
-    st.write(f"‘{item['name']}’ 메모를 삭제할까요?")
-    st.caption('구매가 아닙니다. 구매한 물건은 ‘카트 담기’에서 가격·수량을 기록하세요.')
-    if st.button('메모만 삭제', type='primary', use_container_width=True):
-        mutate("DELETE FROM items WHERE id=? AND list_id=? AND status!='bought'", (item['id'], list_id))
-        st.rerun()
+def restore(raw, board):
+    data = json.loads(raw)
+    if data.get('version') != 1 or not isinstance(data.get('events'),list):
+        raise ValueError('지원하지 않는 백업 형식입니다.')
+    if len(data['events']) > 5000:
+        raise ValueError('한 번에 최대 5,000개의 일정만 복원할 수 있어요.')
+    prepared = []
+    mapping = {}
+    for r in data['events']:
+        title = str(r['title']).strip()
+        dt = datetime.fromisoformat(r['starts'])
+        priority = int(r['importance'])
+        if not title or len(title)>60 or not 2000<=dt.year<=2100 or priority not in IMPORTANCE or r['category'] not in CATEGORIES:
+            raise ValueError('백업에 올바르지 않은 일정이 있어요.')
+        new_id = str(uuid.uuid4())
+        mapping[r['id']] = new_id
+        prepared.append((new_id,board,title,r['category'],dt.replace(tzinfo=None).isoformat(timespec='minutes'),str(r.get('place',''))[:100],str(r.get('people',''))[:100],str(r.get('prep',''))[:400],priority,int(bool(r.get('done',0)))))
+    with connect() as db:
+        db.executemany('INSERT INTO events(id,board,title,category,starts,place,people,prep,importance,done) VALUES(?,?,?,?,?,?,?,?,?,?)', prepared)
+        for a in data.get('acknowledgements',[]):
+            if a.get('event_id') in mapping and str(a.get('person','')).strip():
+                db.execute('INSERT OR REPLACE INTO acknowledgements VALUES(?,?,?,?)',(mapping[a['event_id']],board,str(a['person'])[:20],datetime.now(TZ).isoformat()))
+    return len(prepared)
 
 
-@st.dialog('QR · 공유 · 데이터')
+@st.dialog('QR · 공유 · 백업')
 def settings():
-    st.caption('동일한 QR/링크를 가진 사람은 같은 장보기 목록을 보고 수정할 수 있어요. 공개 게시하지 마세요.')
-    base = st.text_input('배포된 앱 URL', value=st.session_state.get('base_url', ''), placeholder='https://your-app.streamlit.app')
+    st.warning('가족 링크를 가진 사람은 모든 일정을 보고 수정할 수 있어요. 링크를 공개하거나 민감한 정보를 입력하지 마세요.')
+    base = st.text_input('배포된 앱 주소', value=st.session_state.get('base_url',''), placeholder='https://your-app.streamlit.app')
     if base:
         try:
-            url = safe_url(base, list_id)
+            url = share_url(base,board)
             st.session_state['base_url'] = base
             buf = io.BytesIO()
-            qrcode.make(url).save(buf, format='PNG')
-            st.image(buf.getvalue(), width=180)
-            st.link_button('같은 장보기 열기', url, use_container_width=True)
-            st.code(url, language=None, wrap_lines=True)
-            st.download_button('QR 이미지 저장', buf.getvalue(), 'shopping-qr.png', 'image/png', use_container_width=True)
+            qrcode.make(url).save(buf,format='PNG')
+            st.image(buf.getvalue(),width=180)
+            st.link_button('우리 가족 알림판 열기',url,use_container_width=True)
+            st.code(url,language=None,wrap_lines=True)
+            st.download_button('QR 이미지 저장',buf.getvalue(),'family-qr.png','image/png',use_container_width=True)
         except ValueError as exc:
             st.error(str(exc))
-    st.warning('현재 데이터는 서버 임시 저장입니다. 재시작·재배포 시 사라질 수 있어요. 필요한 기록은 CSV로 보관하세요.')
-    data = records(list_id)
-    output = io.StringIO(newline='')
-    writer = csv.writer(output)
-    writer.writerow(['카테고리','상품명','중요도','예정수량','단위','단가상한','메모','상태','실제단가','실제수량','합계'])
-    for r in data:
-        # 스프레드시트 수식 실행 방지
-        def text(v):
-            s = str(v)
-            return "'" + s if s.lstrip().startswith(('=', '+', '-', '@')) else s
-        writer.writerow([text(r['category']),text(r['name']),r['priority'],r['planned_qty'],text(r['unit']),
-                         r['ceiling'],text(r['note']),{'pending':'대기','deferred':'보류','bought':'구매'}[r['status']],
-                         r['price'],r['quantity'],r['total']])
-    st.download_button('전체 내역 CSV 저장', output.getvalue().encode('utf-8-sig'), 'shopping.csv', 'text/csv', use_container_width=True)
-    st.caption('기존 목록은 주소를 북마크해 보관하세요. 새 장보기는 별도 주소로 생성됩니다.')
-    if st.button('빈 장보기 새로 만들기', use_container_width=True):
-        st.query_params['list'] = str(uuid.uuid4())
-        st.rerun()
+    st.info('처음 공유할 때 이 QR을 가족에게 보내세요. 각자 접속 후 브라우저의 ‘홈 화면에 추가’를 사용하면 편해요.')
+    st.warning('서버 로컬 저장 방식입니다. 서버 초기화·재배포 시 데이터가 사라질 수 있으니 정기적으로 백업하세요.')
+    st.download_button('일정 전체 백업(JSON)',backup(board),'family-backup.json','application/json',use_container_width=True)
+    upload = st.file_uploader('백업 복원 · 기존 일정에 추가됩니다',type=['json'])
+    agree = st.checkbox('복원은 추가 방식이며 반복하면 일정이 중복될 수 있음을 확인했어요')
+    if st.button('백업 복원',disabled=not(upload and agree),use_container_width=True):
+        try:
+            if upload.size > 5_000_000:
+                raise ValueError('백업은 5MB 이하만 지원합니다.')
+            count = restore(upload.getvalue(),board)
+            st.session_state['notice'] = f'{count}개 일정을 복원했어요.'
+            st.rerun()
+        except (ValueError,KeyError,TypeError,AttributeError) as exc:
+            st.error(f'복원하지 못했어요. 백업 형식을 확인하세요. ({exc})')
+    st.caption('이 앱은 한국 시간 기준입니다. 앱 종료 중 문자·푸시 알림은 전송하지 않습니다. 가족의 변경 내용은 새로고침으로 확인하세요.')
 
 
-items = records(list_id)
-pending = [r for r in items if r['status'] == 'pending']
-bought = [r for r in items if r['status'] == 'bought']
-deferred = [r for r in items if r['status'] == 'deferred']
-
-heading, menu = st.columns([8, 1])
-heading.markdown('# 🛒 장보기 알림메모')
-if menu.button('⋯', help='QR·공유·CSV 저장', use_container_width=True):
+now = datetime.now(TZ)
+rows = events(board)
+active = [e for e in rows if not e['done']]
+today = [e for e in active if starts(e).date() == now.date()]
+late = [e for e in active if starts(e) < now]
+head,menu = st.columns([8,1])
+head.markdown('# 📅 우리집 일정')
+if menu.button('⋯',help='QR 공유·백업',use_container_width=True):
     settings()
-a, b, c = st.columns(3)
-a.metric('현재 카트 총액', f"{sum(r['total'] for r in bought):,}원")
-b.metric('남은 메모', f'{len(pending)}개')
-c.metric('보류 / 구매', f'{len(deferred)} / {len(bought)}')
-
-view_col, add_col = st.columns([3, 1])
-view = view_col.selectbox('보기', ['📝 살 것', '💭 보류', '🛒 카트'], label_visibility='collapsed')
-if add_col.button('＋ 추가', use_container_width=True, type='primary'):
-    add_item()
-
-pool = pending if view == '📝 살 것' else deferred if view == '💭 보류' else bought
-category = st.selectbox('카테고리 필터', ['전체 카테고리'] + CATEGORIES, label_visibility='collapsed')
-filtered = [r for r in pool if category == '전체 카테고리' or r['category'] == category]
-if filtered:
-    by_id = {r['id']: r for r in filtered}
-    def label(item_id):
-        r = by_id[item_id]
-        suffix = f" · {r['total']:,}원" if r['status'] == 'bought' else f" · {r['planned_qty']:g}{r['unit']}"
-        return f"{PRIORITY[r['priority']]} | {r['name']}{suffix}"
-    selected = st.selectbox('상품 선택 · 중요도 순', list(by_id), format_func=label, key=f'select_{view}_{category}')
-    item = by_id[selected]
-    with st.container(border=True):
-        st.write(f"**{item['name']}**")
-        st.caption(f"{item['category']} · {PRIORITY[item['priority']]} · 예정 {item['planned_qty']:g}{item['unit']}")
-        if item['ceiling']:
-            st.caption(f"단가 상한 {item['ceiling']:,}원/{item['unit']}")
-        if item['note']:
-            st.text(item['note'])
-        if item['status'] == 'bought':
-            st.write(f"{item['price']:,}원 × {item['quantity']:g}{item['unit']} = **{item['total']:,}원**")
-            if st.button('구매 내역 관리', use_container_width=True):
-                cart_item(item)
-        else:
-            a, b = st.columns([2, 1])
-            if a.button('🛒 카트 담기', use_container_width=True, type='primary'):
-                purchase(item)
-            if item['status'] == 'pending':
-                if b.button('보류', use_container_width=True):
-                    mutate("UPDATE items SET status='deferred' WHERE id=? AND list_id=? AND status='pending'", (item['id'], list_id))
-                    st.rerun()
-            else:
-                if b.button('다시 살 것', use_container_width=True):
-                    mutate("UPDATE items SET status='pending' WHERE id=? AND list_id=? AND status='deferred'", (item['id'], list_id))
-                    st.rerun()
-            if st.button('메모 삭제', use_container_width=True):
-                delete_item(item)
+st.caption(f"{now.month}월 {now.day}일 {'월화수목금토일'[now.weekday()]}요일 · 가족이 함께 보는 알림판")
+if 'notice' in st.session_state:
+    st.success(st.session_state.pop('notice'))
+a,b,c = st.columns(3)
+a.metric('오늘 일정',f'{len(today)}개')
+b.metric('남은 일정',f'{len(active)}개')
+c.metric('시간 지난 미완료',f'{len(late)}개')
+left,right = st.columns([3,1])
+view = left.selectbox('일정 보기',['다가오는 일정','오늘 일정','시간 지난 일정','완료한 일정'],label_visibility='collapsed')
+if right.button('＋ 등록',type='primary',use_container_width=True):
+    editor()
+if view == '다가오는 일정':
+    pool = [e for e in active if starts(e)>=now]
+elif view == '오늘 일정':
+    pool = today
+elif view == '시간 지난 일정':
+    pool = late
 else:
-    st.info('해당 상품이 없어요. ＋ 추가로 메모를 만들거나 다른 카테고리를 선택하세요.')
-st.caption('1 필수 · 2 필요 · 3 여유 | 비싸면 보류해도 괜찮아요')
-if st.button('↻ 새로고침', use_container_width=True, help='다른 기기의 변경 내용 반영'):
+    pool = sorted([e for e in rows if e['done']],key=lambda e:e['starts'],reverse=True)
+
+if pool:
+    ids = [e['id'] for e in pool]
+    lookup = {e['id']:e for e in pool}
+    eid = st.selectbox('일정 선택',ids,format_func=lambda i:f"{date_label(lookup[i])} · {lookup[i]['title']}",key='event_'+view)
+    item = lookup[eid]
+    with st.container(border=True):
+        st.subheader(item['title'])
+        st.write('🕒 **'+date_label(item)+'**')
+        st.caption(f"{item['category']} · {IMPORTANCE[item['importance']]}")
+        # 고정 높이 영역으로 긴 메모가 주 화면을 밀어내지 않도록 제한
+        with st.container(height=115,border=False):
+            st.write('📍 '+(item['place'] or '장소 미입력'))
+            if item['people']:
+                st.write('👪 '+item['people'])
+            st.write('🎒 '+(item['prep'] or '준비물 없음'))
+            names = confirmations(item['id'],board)
+            st.caption('확인: '+(', '.join(names) if names else '아직 없어요'))
+        a,b = st.columns(2)
+        if item['done']:
+            if a.button('↩ 완료 취소',use_container_width=True):
+                change('UPDATE events SET done=0 WHERE id=? AND board=?',(eid,board))
+                st.rerun()
+        else:
+            if a.button('✅ 확인했어요',type='primary',use_container_width=True):
+                confirm_event(item)
+            if b.button('🏁 일정 완료',use_container_width=True):
+                change('UPDATE events SET done=1 WHERE id=? AND board=?',(eid,board))
+                st.rerun()
+        if st.button('일정 수정·삭제',use_container_width=True):
+            editor(item)
+else:
+    st.info('이 보기에 일정이 없어요. ＋ 등록을 눌러 가족 일정을 추가하세요.')
+if late and view != '시간 지난 일정':
+    st.caption(f'🔔 시간이 지난 미완료 일정 {len(late)}개는 ‘시간 지난 일정’에서 확인하세요.')
+if st.button('↻ 가족 변경 내용 새로고침',use_container_width=True):
     st.rerun()
