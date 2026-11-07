@@ -25,6 +25,7 @@ import plotly.graph_objects as go
 DB_PATH = os.environ.get('CARE_DB_PATH', 'family_care.sqlite3')
 TZ = ZoneInfo('Asia/Seoul')
 PARTS = ['머리', '목', '왼쪽 어깨', '오른쪽 어깨', '가슴', '배', '허리', '왼쪽 팔·손', '오른쪽 팔·손', '왼쪽 무릎', '오른쪽 무릎', '왼쪽 발·발목', '오른쪽 발·발목']
+SYMPTOMS = ['어지러움', '메스꺼움', '속쓰림·소화 불편', '기침', '목 따가움', '콧물·코막힘', '열감·오한', '피로·기운 없음', '잠을 잘 못 잠', '가려움', '설사', '변비']
 LEVELS = {1: '🙂 살짝', 2: '😟 중간', 3: '😣 많이'}
 DISCLAIMER = '이 앱은 진단·치료·응급 감시 도구가 아닙니다. 3단계는 간편 불편도이며, 임상 NPRS(0~10) 또는 VAS 점수가 아닙니다.'
 
@@ -77,10 +78,17 @@ def get_entries(fid, person=None):
     return [dict(r) for r in rows]
 
 
+def valid_item(part):
+    return isinstance(part, str) and (
+        part in PARTS or part in SYMPTOMS
+        or (part.startswith('직접 입력: ') and 0 < len(part[7:].strip()) <= 60)
+    )
+
+
 def add_entry(fid, person, part, level):
     if not person.strip() or len(person.strip()) > 20:
         raise ValueError('이름은 1~20자로 입력해 주세요.')
-    if (level == 0 and part != '불편 없음') or (level != 0 and (part not in PARTS or level not in (1, 2, 3))):
+    if (level == 0 and part != '불편 없음') or (level != 0 and (not valid_item(part) or level not in (1, 2, 3))):
         raise ValueError('올바르지 않은 기록입니다.')
     eid = uuid.uuid4().hex
     with connect() as con:
@@ -225,11 +233,25 @@ def main():
             # 본인 왼쪽은 정면 그림의 화면 오른쪽. 큰 선택점과 별도 접근성 버튼 제공.
             positions = [(0,9), (0,7.8), (1.1,7.2), (-1.1,7.2), (0,6.8), (0,5.5), (2.5,5.5), (1.7,5.8), (-1.7,5.8), (.65,3), (-.65,3), (.7,1), (-.7,1)]
             fig = go.Figure()
-            fig.add_shape(type='circle', x0=-.65, x1=.65, y0=8.3, y1=9.7, fillcolor='#DAE9EC', line_width=0)
-            for x0,x1,y0,y1 in [(-.35,.35,7.4,8.4),(-1,1,4.5,7.6),(-1.95,-1,4.7,7.4),(1,1.95,4.7,7.4),(-1,-.15,.5,4.6),(.15,1,.5,4.6)]:
-                fig.add_shape(type='rect', x0=x0,x1=x1,y0=y0,y1=y1,fillcolor='#DAE9EC',line_width=0)
+            # 배경 실루엣은 아래 레이어에 고정하여 선택점을 가리지 않음.
+            from PIL import Image, ImageDraw
+            silhouette = Image.new('RGBA', (420, 740), (255, 255, 255, 0))
+            draw = ImageDraw.Draw(silhouette)
+            fill = '#DCECEE'
+            outline = '#A8C9CD'
+            draw.ellipse((157, 14, 263, 122), fill=fill, outline=outline, width=3)
+            draw.rounded_rectangle((186, 108, 234, 163), radius=18, fill=fill)
+            draw.rounded_rectangle((127, 141, 293, 390), radius=57, fill=fill, outline=outline, width=3)
+            draw.line([(143, 169), (105, 240), (76, 365)], fill=outline, width=46)
+            draw.line([(143, 169), (105, 240), (76, 365)], fill=fill, width=40)
+            draw.line([(277, 169), (315, 240), (344, 365)], fill=outline, width=46)
+            draw.line([(277, 169), (315, 240), (344, 365)], fill=fill, width=40)
+            for x in (139, 223):
+                draw.rounded_rectangle((x, 351, x + 59, 686), radius=28, fill=fill, outline=outline, width=3)
+                draw.rounded_rectangle((x - 6, 662, x + 67, 714), radius=20, fill=fill, outline=outline, width=3)
+            fig.add_layout_image(dict(source=silhouette, xref='x', yref='y', x=-2.15, y=9.85, sizex=4.3, sizey=9.7, sizing='stretch', layer='below'))
             fig.add_trace(go.Scatter(x=[p[0] for p in positions], y=[p[1] for p in positions], mode='markers+text', text=[p.replace('왼쪽 ', '왼 ').replace('오른쪽 ', '오른 ') for p in PARTS], textposition='middle center', textfont=dict(size=12,color='#153F47'), customdata=PARTS, marker=dict(size=47,color='#FFF6D5',line=dict(color='#45838A',width=1)), selected=dict(marker=dict(color='#FDBF47')), unselected=dict(marker=dict(opacity=1)), hovertemplate='%{customdata}<extra></extra>'))
-            fig.update_layout(height=380,margin=dict(l=5,r=5,t=5,b=5),showlegend=False,plot_bgcolor='white',paper_bgcolor='white',clickmode='event+select',dragmode=False,xaxis=dict(visible=False,range=[-3.2,3.2],fixedrange=True),yaxis=dict(visible=False,range=[0,10],fixedrange=True))
+            fig.update_layout(height=450,margin=dict(l=5,r=5,t=5,b=5),showlegend=False,plot_bgcolor='white',paper_bgcolor='white',clickmode='event+select',dragmode=False,xaxis=dict(visible=False,range=[-3.2,3.2],fixedrange=True),yaxis=dict(visible=False,range=[0,10],fixedrange=True,scaleanchor='x',scaleratio=1))
             event = st.plotly_chart(fig, key=f"body_{st.session_state.get('map_generation', 0)}", on_select='rerun', selection_mode='points', use_container_width=True, config={'displayModeBar':False,'scrollZoom':False})
             if event.selection.points:
                 point = event.selection.points[-1]
@@ -244,6 +266,24 @@ def main():
                         if col.button(part, key=f'part_{part}', use_container_width=True):
                             st.session_state.selected_part = part
                             st.rerun()
+            st.markdown('### 다른 증상·컨디션')
+            st.caption('부위로 표현하기 어려운 증상을 고르거나 직접 적어 주세요. 선택 후 불편도를 누르면 저장됩니다.')
+            for start in range(0, len(SYMPTOMS), 2):
+                for symptom, col in zip(SYMPTOMS[start:start + 2], st.columns(2)):
+                    if col.button(symptom, key=f'symptom_{symptom}', use_container_width=True):
+                        st.session_state.selected_part = symptom
+                        st.session_state.map_generation = st.session_state.get('map_generation', 0) + 1
+                        st.rerun()
+            with st.form('custom_symptom', clear_on_submit=True):
+                custom = st.text_input('목록에 없는 증상 직접 쓰기', max_chars=60, placeholder='예: 입안이 헐어서 불편해요')
+                custom_submit = st.form_submit_button('이 증상으로 불편도 선택', use_container_width=True)
+            if custom_submit:
+                if not custom.strip():
+                    st.error('증상을 적어 주세요.')
+                else:
+                    st.session_state.selected_part = '직접 입력: ' + custom.strip()
+                    st.session_state.map_generation = st.session_state.get('map_generation', 0) + 1
+                    st.rerun()
             if st.button('😊 오늘은 불편한 곳 없어요', use_container_width=True):
                 if not person.strip():
                     st.error('이름·별명을 먼저 입력해 주세요.')
@@ -284,7 +324,7 @@ def main():
         if alerts:
             for alert in alerts:
                 st.error('살펴봐 주세요 · ' + alert)
-            st.caption('연속 일수는 한국 시간 기준 같은 부위의 기록 날짜를 셉니다. 같은 날 여러 번 기록해도 하루로 계산합니다. 상태 악화 여부는 직접 연락해 확인하세요.')
+            st.caption('연속 일수는 한국 시간 기준 같은 부위·증상의 기록 날짜를 셉니다. 같은 날 여러 번 기록해도 하루로 계산합니다. 상태 악화 여부는 직접 연락해 확인하세요.')
         choice = st.selectbox('보여줄 기록', ['미확인', '오늘', '전체'])
         shown = pending if choice == '미확인' else today_rows if choice == '오늘' else rows
         if not shown:
