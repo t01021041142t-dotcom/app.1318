@@ -231,62 +231,35 @@ def go_plot(pts,facing="앞면"):
     # 신체 부위와 글자 라벨 양쪽 모두 같은 선택 이벤트를 반환합니다.
     fig.add_trace(pg.Scatter(x=[p[1] for p in pts],y=[p[2] for p in pts],mode='markers',customdata=[p[0] for p in pts],marker={'size':17,'color':'#3182F6','opacity':.8,'line':{'color':'white','width':2}},hovertemplate='%{customdata}<extra></extra>'))
     fig.add_trace(pg.Scatter(x=[p[3] for p in pts],y=[p[2] for p in pts],mode='markers+text',text=[p[0].replace('왼쪽','왼').replace('오른쪽','오른') for p in pts],customdata=[p[0] for p in pts],textfont={'size':12,'color':'#18384B'},marker={'size':44,'color':'#FFFFFF','opacity':.95},hovertemplate='%{customdata}<extra></extra>'))
-    fig.update_layout(height=300,showlegend=False,clickmode='event+select',dragmode=False,margin={'l':0,'r':0,'t':2,'b':0},paper_bgcolor='white',plot_bgcolor='white',xaxis={'visible':False,'range':[-4.05,4.05],'fixedrange':True},yaxis={'visible':False,'range':[0,10.5],'fixedrange':True,'scaleanchor':'x','scaleratio':1})
+    fig.update_layout(height=255,showlegend=False,clickmode='event+select',dragmode=False,margin={'l':0,'r':0,'t':2,'b':0},paper_bgcolor='white',plot_bgcolor='white',xaxis={'visible':False,'range':[-4.05,4.05],'fixedrange':True},yaxis={'visible':False,'range':[0,10.5],'fixedrange':True,'scaleanchor':'x','scaleratio':1})
     return fig
 
 def login_screen():
-    st.subheader('가족의 몸 상태를, 함께 살펴요')
-    st.caption('부위를 누르고 불편도를 고르면 가족에게 공유돼요.')
-    a,b=st.columns(2)
-    with a:
-        with st.container(border=True):
-            st.write('**손쉽게 기록**')
-            st.caption('글을 쓰지 않고 부위로 선택')
-    with b:
-        with st.container(border=True):
-            st.write('**가족과 공유**')
-            st.caption('새 기록과 반복된 불편 확인')
-    mode=st.session_state.get('entry_mode')
-    if mode is None:
-        if st.button('처음이에요 · 가족 공간 만들기',type='primary',use_container_width=True):
-            st.session_state.entry_mode='create';st.rerun()
-        if st.button('초대받았어요 · 가족과 연결',use_container_width=True):
-            st.session_state.entry_mode='join';st.rerun()
-        st.caption('진단 앱이 아닌 가족 건강 기록장입니다.')
-        return
-    if st.button('‹ 시작 화면'):
-        st.session_state.pop('entry_mode',None);st.rerun()
-    if mode=='create':
-        st.write('**가족이 함께 쓸 비밀번호를 정해 주세요**')
-        with st.form('create_family'):
-            password=st.text_input('가족 비밀번호',type='password',help='10자 이상. 가족에게만 알려 주세요.')
-            again=st.text_input('비밀번호 확인',type='password')
-            submitted=st.form_submit_button('만들고 시작하기',use_container_width=True)
-        if submitted:
-            # 가입 입력 오류에는 대기시간이나 로그인 실패 횟수를 적용하지 않음.
-            if len(password)<10:
-                st.error('비밀번호를 10자 이상 입력해 주세요. 바로 수정할 수 있어요.')
-            elif password!=again:
-                st.error('두 비밀번호가 달라요. 확인 칸을 다시 입력해 주세요.')
-            else:
-                st.session_state.fid=create_family(password)
-                go('setup')
-        st.caption('가족 ID는 자동으로 만들어져요. 비밀번호 복구는 지원하지 않아요.')
-    else:
-        st.write('**가족에게 받은 정보로 연결해요**')
-        with st.form('join_family'):
-            fid=st.text_input('초대받은 가족 ID',value=st.query_params.get('family',''))
-            password=st.text_input('가족 비밀번호',type='password')
-            submitted=st.form_submit_button('우리 가족 연결하기',use_container_width=True)
-        if submitted:
-            if not fid.strip() or not password:
-                st.error('가족 ID와 비밀번호를 입력해 주세요.')
-            elif login(fid.strip(),password):
-                st.session_state.fid=fid.strip()
-                go('home' if members(fid.strip()) else 'setup')
-            else:
-                st.error('연결 정보를 확인해 주세요. 가족 ID는 이름이 아닌 초대 코드예요.')
-        st.caption('가족 ID와 비밀번호는 먼저 공간을 만든 가족에게 받아 주세요.')
+    st.subheader('가족과 연결하기')
+    mode=st.segmented_control('연결 방법',['기존 가족 로그인','새 가족 등록'],default='기존 가족 로그인',label_visibility='collapsed')
+    creating=mode=='새 가족 등록'
+    with st.form('family_entry'):
+        fid='' if creating else st.text_input('초대 코드',value=st.query_params.get('family',''))
+        password=st.text_input('비밀번호',type='password')
+        again=st.text_input('비밀번호 확인',type='password') if creating else password
+        name=st.text_input('내 이름 / 별명',max_chars=20,placeholder='예: 엄마, 아빠')
+        submitted=st.form_submit_button('가족 등록하기' if creating else '입장하기',use_container_width=True)
+    if submitted:
+        if not name.strip(): st.error('이름 또는 별명을 입력해 주세요.'); return
+        if creating:
+            if len(password)<10: st.error('비밀번호를 10자 이상 입력해 주세요.'); return
+            if password!=again: st.error('두 비밀번호가 다릅니다.'); return
+            fid=create_family(password)
+        else:
+            fid=fid.strip()
+            if not fid or not password or not login(fid,password):
+                st.error('초대 코드와 비밀번호를 확인해 주세요.'); return
+        add_member(fid,name.strip())
+        st.session_state.fid=fid
+        st.session_state.who=name.strip()
+        st.session_state.token=uuid.uuid4().hex
+        go('home')
+    if creating: st.caption('비밀번호 10자 이상 · 초대 코드는 설정에서 확인')
 
 
 def setup_screen(fid):
@@ -303,7 +276,7 @@ def setup_screen(fid):
 def home_screen(fid):
     names=members(fid)
     if not names:
-        st.subheader('내 상태 남기기')
+        st.markdown('### 내 상태 남기기')
         st.caption('처음 한 번 기록할 이름을 등록해 주세요.')
         button('이름 등록하기','setup')
         return
@@ -312,7 +285,7 @@ def home_screen(fid):
     if not st.session_state.get('token'):
         st.session_state.token=uuid.uuid4().hex
     a,b=st.columns([3,1])
-    with a: st.subheader('내 상태 남기기')
+    with a: st.markdown('### 내 상태 남기기')
     with b:
         if st.button('👤',key='switch_person',help='기록할 가족 바꾸기'): go('choose')
     st.caption(st.session_state.who+' · 불편한 부위를 선택하세요')
@@ -462,10 +435,14 @@ def main():
     st.markdown('''<style>
     :root {color-scheme:light}
     [data-testid="stAppViewContainer"]{background:#FAF8F4}
-    .block-container{max-width:540px;padding-top:1rem;padding-bottom:1rem}
+    .block-container{max-width:540px;padding-top:1rem;padding-bottom:calc(100px + env(safe-area-inset-bottom))}
     header[data-testid="stHeader"]{position:relative;height:2rem;background:#FAF8F4}
     [data-testid="stVerticalBlock"]{gap:.55rem}
+    .st-key-main_nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(100%,540px);z-index:999;background:#FAF8F4;padding:8px 10px calc(8px + env(safe-area-inset-bottom));box-sizing:border-box;border-top:1px solid #E8E5DE}
+    .st-key-main_nav [data-testid="stHorizontalBlock"]{flex-wrap:nowrap!important;gap:5px!important}
+    .st-key-main_nav [data-testid="stColumn"]{min-width:0!important;flex:1 1 0!important;width:auto!important}
     .st-key-main_nav button{min-height:48px!important;border-radius:14px!important;padding:3px!important}
+    h3{margin-top:0!important;padding-top:0!important}
     .st-key-main_nav button p{font-size:.76rem!important}
     .modo-splash{text-align:center;font-size:clamp(3rem,18vw,5rem);font-weight:800;letter-spacing:.12em;color:#365347;padding-top:30vh;animation:modo-in .7s ease}
     @keyframes modo-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
