@@ -24,7 +24,16 @@ import streamlit as st
 DB = os.environ.get('CARE_DB_PATH', 'family_care.sqlite3')
 TZ = ZoneInfo('Asia/Seoul')
 LEVELS = {0: '편안해요', 1: '살짝 불편', 2: '중간 정도', 3: '많이 불편'}
-PARTS = ['머리','목','가슴','배','허리','왼쪽 어깨','오른쪽 어깨','왼쪽 팔·손','오른쪽 팔·손','왼쪽 엉덩이','오른쪽 엉덩이','왼쪽 무릎','오른쪽 무릎','왼쪽 발·발목','오른쪽 발·발목']
+REGIONS = {
+    '머리·얼굴': ['머리', '눈 주변', '귀', '코 주변', '턱·입 주변'],
+    '목·어깨': ['목 앞쪽', '목 뒤쪽', '왼쪽 어깨', '오른쪽 어깨'],
+    '몸통': ['가슴', '명치', '윗배', '아랫배', '왼쪽 옆구리', '오른쪽 옆구리', '등', '허리'],
+    '팔·손': ['왼쪽 위팔', '오른쪽 위팔', '왼쪽 팔꿈치', '오른쪽 팔꿈치', '왼쪽 아래팔', '오른쪽 아래팔', '왼쪽 손목', '오른쪽 손목', '왼쪽 손·손가락', '오른쪽 손·손가락'],
+    '골반·엉덩이': ['골반 가운데', '왼쪽 골반·고관절 주변', '오른쪽 골반·고관절 주변', '왼쪽 사타구니', '오른쪽 사타구니', '왼쪽 엉덩이', '오른쪽 엉덩이', '꼬리뼈 주변'],
+    '다리·발': ['왼쪽 허벅지', '오른쪽 허벅지', '왼쪽 무릎', '오른쪽 무릎', '왼쪽 정강이', '오른쪽 정강이', '왼쪽 종아리', '오른쪽 종아리', '왼쪽 발목', '오른쪽 발목', '왼쪽 발등', '오른쪽 발등', '왼쪽 발바닥·뒤꿈치', '오른쪽 발바닥·뒤꿈치', '왼쪽 발가락', '오른쪽 발가락'],
+    '넓게 불편해요': ['전신', '여러 관절', '여러 근육'],
+}
+PARTS = sorted({part for items in REGIONS.values() for part in items})
 
 def now():
     return datetime.now(TZ)
@@ -160,23 +169,36 @@ OUTLINE = 'M -.38,8.8 C -.85,8.82 -.9,9.8 -.48,10.08 C -.2,10.3 .2,10.3 .48,10.0
 
 def body_map():
     facing=st.segmented_control('신체 방향',['앞면','뒷면'],default='앞면',key='facing') or '앞면'
-    # (부위,x,y,라벨x). 정면의 화면 오른쪽은 본인 왼쪽입니다.
-    if facing=='앞면':
-        pts=[('머리',0,9.5,2.9),('목',0,8.55,-2.9),('가슴',0,7.5,2.9),('배',0,6,-2.9),('왼쪽 어깨',1,8.05,2.9),('오른쪽 어깨',-1,8.05,-2.9),('왼쪽 팔·손',1.7,5.4,2.9),('오른쪽 팔·손',-1.7,5.4,-2.9),('왼쪽 무릎',.58,2.75,2.9),('오른쪽 무릎',-.58,2.75,-2.9),('왼쪽 발·발목',.48,.65,2.9),('오른쪽 발·발목',-.48,.65,-2.9)]
-    else:
-        pts=[('목',0,8.55,2.9),('허리',0,5.9,2.9),('왼쪽 어깨',-1,8,-2.9),('오른쪽 어깨',1,8,2.9),('왼쪽 팔·손',-1.7,5,-2.9),('오른쪽 팔·손',1.7,5,2.9),('왼쪽 엉덩이',-.6,4.5,-2.9),('오른쪽 엉덩이',.6,4.5,2.9),('왼쪽 무릎',-.58,2.8,-2.9),('오른쪽 무릎',.58,2.8,2.9),('왼쪽 발·발목',-.48,.65,-2.9),('오른쪽 발·발목',.48,.65,2.9)]
+    # 큰 영역 먼저 선택하여 작은 화면에서 라벨이 겹치지 않도록 합니다.
+    pts=[('머리·얼굴',0,9.5,2.9),('목·어깨',0,8.15,-2.9),
+         ('몸통',0,6.65,2.9),('팔·손',-1.7,5.4,-2.9),
+         ('골반·엉덩이',0,4.7,2.9),('다리·발',-.55,2.3,-2.9)]
     fig=go_plot(pts)
     generation=st.session_state.get('map_gen',0)
     event=st.plotly_chart(fig,key=f'map_{generation}_{facing}',on_select='rerun',selection_mode='points',use_container_width=True,config={'displayModeBar':False,'scrollZoom':False})
     if event.selection.points:
-        point=event.selection.points[-1]
-        part=point.get('customdata')
-        if isinstance(part,str) and part in PARTS:
-            st.session_state.part=part
+        region=event.selection.points[-1].get('customdata')
+        if isinstance(region,str) and region in REGIONS:
+            st.session_state.region=region
             st.session_state.map_gen=generation+1
-            go('level')
-    # 그림 터치가 불편한 기기를 위한 별도 기능 화면. 드롭다운/직접 입력 없음.
+            go('region')
     button('부위 이름으로 선택', 'parts')
+
+
+def region_screen():
+    back('body')
+    region=st.session_state.get('region')
+    if region not in REGIONS:
+        go('body')
+    st.caption(f"{st.session_state.who} · 2 / 3")
+    st.subheader(region)
+    st.caption('본인 기준 왼쪽·오른쪽')
+    cols=st.columns(2)
+    for i,part in enumerate(REGIONS[region]):
+        if cols[i%2].button(part,key='detail_'+part,use_container_width=True):
+            st.session_state.part=part
+            go('level')
+
 
 def go_plot(pts):
     fig=pg.Figure()
@@ -186,7 +208,7 @@ def go_plot(pts):
     # 신체 부위와 글자 라벨 양쪽 모두 같은 선택 이벤트를 반환합니다.
     fig.add_trace(pg.Scatter(x=[p[1] for p in pts],y=[p[2] for p in pts],mode='markers',customdata=[p[0] for p in pts],marker={'size':24,'color':'#117F83','opacity':.85},hovertemplate='%{customdata}<extra></extra>'))
     fig.add_trace(pg.Scatter(x=[p[3] for p in pts],y=[p[2] for p in pts],mode='markers+text',text=[p[0].replace('왼쪽','왼').replace('오른쪽','오른') for p in pts],customdata=[p[0] for p in pts],textfont={'size':12,'color':'#18384B'},marker={'size':44,'color':'#F5F8FA','opacity':.95},hovertemplate='%{customdata}<extra></extra>'))
-    fig.update_layout(height=420,showlegend=False,clickmode='event+select',dragmode=False,margin={'l':0,'r':0,'t':2,'b':0},paper_bgcolor='white',plot_bgcolor='white',xaxis={'visible':False,'range':[-4.05,4.05],'fixedrange':True},yaxis={'visible':False,'range':[0,10.5],'fixedrange':True})
+    fig.update_layout(height=440,showlegend=False,clickmode='event+select',dragmode=False,margin={'l':0,'r':0,'t':2,'b':0},paper_bgcolor='white',plot_bgcolor='white',xaxis={'visible':False,'range':[-4.05,4.05],'fixedrange':True},yaxis={'visible':False,'range':[0,10.5],'fixedrange':True,'scaleanchor':'x','scaleratio':1})
     return fig
 
 def login_screen():
@@ -253,23 +275,24 @@ def choose_screen(fid):
 
 def body_screen(fid):
     back('choose')
-    st.caption(f'{st.session_state.who}  ·  1 / 2')
+    st.caption(f'{st.session_state.who}  ·  1 / 3')
     st.subheader('어디가 불편하세요?')
     body_map()
     if st.button('😊 오늘은 편안해요',use_container_width=True): complete(fid,'불편 없음',0)
 
 def parts_screen():
     back('body')
-    st.subheader('불편한 부위 선택')
+    st.subheader('部位を選択')
     cols=st.columns(2)
-    for i,part in enumerate(PARTS):
-        if cols[i%2].button(part,key='p_'+part,use_container_width=True):
-            st.session_state.part=part
-            go('level')
+    for i,region in enumerate(REGIONS):
+        if cols[i%2].button(region,key='region_'+region,use_container_width=True):
+            st.session_state.region=region
+            go('region')
+
 
 def level_screen(fid):
-    back('body')
-    st.caption(f'{st.session_state.who}  ·  2 / 2')
+    back('region')
+    st.caption(f'{st.session_state.who}  ·  3 / 3')
     st.subheader(st.session_state.part)
     st.write('얼마나 불편하세요?')
     for level,emoji in [(1,'🙂'),(2,'😟'),(3,'😣')]:
@@ -368,7 +391,7 @@ def qr_screen(fid):
 def help_screen():
     back(st.session_state.get('help_return','home'))
     st.subheader('이용 안내')
-    st.write('**기록:** 가족 선택 → 부위 선택 → 불편도 선택 → 저장 완료')
+    st.write('**기록:** 가족 선택 → 신체 영역 → 세부 부위 → 불편도 → 저장 완료')
     st.write('**가족 확인:** 새 기록을 하나씩 읽고 확인 버튼을 누르세요. 자동 푸시·문자 전송은 없습니다.')
     st.write('**주의 신호:** 오늘 ‘많이’ 기록 또는 같은 부위 3일 이상 연속 기록을 표시합니다. 같은 날은 한 번으로 계산하며, 실제 통증 지속·회복을 판정하지 않습니다.')
     st.write('3단계는 주관적 불편도입니다. 임상 NPRS(0~10)·VAS가 아니며 진단·치료에 사용하지 않습니다. 찜질·약 복용을 자동 추천하지 않습니다.')
@@ -380,7 +403,7 @@ def help_screen():
 def main():
     st.set_page_config(page_title='오늘 어디 아파?',page_icon='💛',layout='centered')
     st.markdown('''<style>
-    .block-container{max-width:760px;padding-top:1.2rem;padding-bottom:1rem}
+    .block-container{max-width:760px;padding-top:4.5rem;padding-bottom:1rem}
     div.stButton>button,div.stFormSubmitButton>button{min-height:54px;border-radius:16px;font-size:1.08rem}
     h1{font-size:clamp(1.35rem,5vw,2rem)!important} h3{font-size:1.35rem!important}
     [data-testid="stMetric"]{background:#F0F7F7;border-radius:16px;padding:12px}
@@ -402,13 +425,14 @@ def main():
         exists=con.execute('SELECT 1 FROM families WHERE id=?',(fid,)).fetchone()
     if not exists:
         st.session_state.clear(); st.warning('가족 공간을 다시 연결해 주세요.'); return
-    if page in ('body','parts','level','done') and not st.session_state.get('who'): go('choose')
+    if page in ('body','parts','region','level','done') and not st.session_state.get('who'): go('choose')
     if page=='level' and not st.session_state.get('part'): go('body')
     if page=='home': home_screen(fid)
     elif page=='setup': setup_screen(fid)
     elif page=='choose': choose_screen(fid)
     elif page=='body': body_screen(fid)
     elif page=='parts': parts_screen()
+    elif page=='region': region_screen()
     elif page=='level': level_screen(fid)
     elif page=='done': done_screen(fid)
     elif page=='family': family_screen(fid)
