@@ -1,4 +1,4 @@
-"""우리몸 / 실행: streamlit run app.py
+"""케어온 / 실행: streamlit run app.py
 GitHub에 app.py와 requirements.txt를 같은 위치에 업로드합니다.
 SQLite는 로컬 시연용입니다. Cloud 초기화 시 데이터가 유실될 수 있습니다.
 가족 비밀번호 소지자는 모든 구성원 기록을 조회·삭제할 수 있습니다.
@@ -451,7 +451,7 @@ def help_screen():
     st.caption('휴대폰 크기에 따라 스크롤이 필요합니다. 공개 운영 전 서버 측 로그인 보호와 개인별 권한 인증을 보강해야 합니다.')
 
 def main():
-    st.set_page_config(page_title='우리몸',page_icon='🌿',layout='centered')
+    st.set_page_config(page_title='케어온',page_icon='🌿',layout='centered')
     st.markdown('''<style>
     :root {color-scheme:light}
     [data-testid="stAppViewContainer"]{background:#F5F7FA}
@@ -479,7 +479,7 @@ def main():
     </style>''',unsafe_allow_html=True)
     initialize()
     a,b=st.columns([5,2])
-    with a: st.title('우리몸')
+    with a: st.title('케어온')
     with b:
         if st.button('ⓘ 안내',use_container_width=True):
             if st.session_state.get('page')!='help': st.session_state.help_return=st.session_state.get('page','home')
