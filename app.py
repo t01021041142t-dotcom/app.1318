@@ -558,6 +558,24 @@ def main():
       border:1px solid #E8EDF3!important;background:#FFFFFF!important;color:#333D4B!important;
     }
     .st-key-main_nav button p{font-size:.68rem!important}
+    /* 하단 메뉴: 본문 버튼 글꼴 규칙과 분리 */
+    .st-key-main_nav{
+      bottom:calc(5px + env(safe-area-inset-bottom))!important;
+      padding:7px 8px!important;
+    }
+    .st-key-main_nav button{
+      min-height:42px!important;height:42px!important;
+      border-radius:15px!important;padding:4px 2px!important;
+    }
+    .st-key-main_nav div.stButton>button p{
+      font-size:12px!important;font-weight:600!important;
+      line-height:1.3!important;letter-spacing:-.35px!important;
+      white-space:nowrap!important;
+    }
+    @media(max-width:380px){
+      .st-key-main_nav div.stButton>button p{font-size:10.5px!important;letter-spacing:-.5px!important}
+      .st-key-main_nav [data-testid="stHorizontalBlock"]{gap:3px!important}
+    }
     </style>''',unsafe_allow_html=True)
     initialize()
     if not st.session_state.get('splash_done'):
