@@ -354,31 +354,42 @@ def done_screen(fid):
         go('home')
 
 def family_screen(fid):
-    back()
-    st.subheader('가족 상태 확인')
-    if st.button('↻ 새로고침'): st.rerun()
+    with st.container(key='family_header'):
+        left,right=st.columns([4,1])
+        left.subheader('가족 상태 확인')
+        if right.button('↻',help='최신 기록 확인',use_container_width=True): st.rerun()
     rows=records(fid)
     unread=[r for r in rows if not r['seen']]
-    a,b=st.columns(2)
-    a.metric('미확인',len(unread)); b.metric('확인 완료',len(rows)-len(unread))
-    mode=st.segmented_control('확인할 내용',['새 기록','주의 신호'],default='새 기록') or '새 기록'
+    st.caption(f'미확인 {len(unread)}건  ·  확인 완료 {len(rows)-len(unread)}건')
+    mode=st.segmented_control('확인할 내용',['새 기록','주의 신호'],default='새 기록',label_visibility='collapsed') or '새 기록'
     if mode=='주의 신호':
         items=signals(rows)
-        if not items: st.success('현재 기록 기준 주의 신호가 없어요.')
-        for person,part,reason in items:
-            with st.container(border=True):
-                st.write(f'**{person} · {part}**'); st.write(reason)
-                st.caption('직접 연락해서 상태를 확인해 주세요.')
+        if not items:
+            st.success('현재 기록 기준 주의 신호가 없어요.')
+            return
+        index=min(st.session_state.get('signal_index',0),len(items)-1)
+        person,part,reason=items[index]
+        with st.container(border=True):
+            st.write(f'**{person} · {part}**')
+            st.write(reason)
+            st.caption('직접 연락해서 상태를 확인해 주세요.')
+        st.caption(f'{index+1} / {len(items)}')
+        if len(items)>1 and st.button('다음 신호',use_container_width=True):
+            st.session_state.signal_index=(index+1)%len(items)
+            st.rerun()
         return
-    if not unread: st.success('새 기록을 모두 확인했어요.'); return
-    # 한 번에 한 기록만 확인: 읽음 처리 후 카운트와 다음 기록 즉시 갱신.
+    if not unread:
+        st.success('새 기록을 모두 확인했어요.')
+        return
     row=unread[0]
     with st.container(border=True):
         st.subheader(f"{row['person']} · {row['part']}")
         st.write(LEVELS[row['level']])
         st.caption(datetime.fromisoformat(row['stamp']).astimezone(TZ).strftime('%m/%d %H:%M'))
-        if st.button('확인했어요 · 다음 기록',use_container_width=True):
-            read_entries(fid,[row['id']]); st.rerun()
+    if st.button('확인했어요 · 다음 기록',type='primary',use_container_width=True):
+        read_entries(fid,[row['id']])
+        st.rerun()
+
 
 def history_screen(fid):
     back()
@@ -512,6 +523,41 @@ def main():
     .st-key-region_grid button{width:100%!important;min-height:50px!important}
     .st-key-region_grid button p{font-size:.95rem!important}
     .st-key-main_nav [data-testid="stVerticalBlock"]{gap:0!important}
+    /* 균형 조정: 상단 빈 공간 축소, 하단 메뉴 안전 영역 확대 */
+    header[data-testid="stHeader"]{height:0!important;min-height:0!important;background:transparent!important}
+    .block-container{padding-top:1.1rem!important;padding-bottom:calc(116px + env(safe-area-inset-bottom))!important}
+    .st-key-main_nav{
+      padding:12px 12px calc(16px + env(safe-area-inset-bottom))!important;
+      background:#FAF8F4!important;
+      box-shadow:0 -5px 20px rgba(38,61,48,.035);
+    }
+    .st-key-main_nav button{min-height:56px!important;border-radius:18px!important;padding:6px 3px!important}
+    .st-key-main_nav button p{font-size:.74rem!important;line-height:1.35!important}
+    .st-key-main_nav [data-testid="stHorizontalBlock"]{gap:6px!important}
+    @media(max-width:600px){
+      .block-container{padding-top:.75rem!important;padding-bottom:calc(108px + env(safe-area-inset-bottom))!important}
+      .st-key-main_nav{padding:10px 8px calc(14px + env(safe-area-inset-bottom))!important}
+      .st-key-main_nav button{min-height:52px!important}
+      .st-key-main_nav button p{font-size:.68rem!important}
+    }
+    .st-key-family_header [data-testid="stHorizontalBlock"]{flex-wrap:nowrap!important;align-items:center!important}
+    .st-key-family_header [data-testid="stColumn"]{min-width:0!important}
+    .st-key-family_header [data-testid="stColumn"]:first-child{flex:4 1 0!important}
+    .st-key-family_header [data-testid="stColumn"]:last-child{flex:1 1 0!important}
+    /* 일반 버튼과 다운로드 버튼의 타이포그래피 통일 */
+    html,body,[data-testid="stAppViewContainer"]{
+      font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif!important;
+    }
+    div.stButton>button,div.stFormSubmitButton>button,div.stDownloadButton>button,
+    div.stButton>button p,div.stFormSubmitButton>button p,div.stDownloadButton>button p{
+      font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif!important;
+      font-size:1rem!important;font-weight:650!important;line-height:1.4!important;
+    }
+    div.stDownloadButton>button{
+      min-height:44px!important;border-radius:14px!important;
+      border:1px solid #E8EDF3!important;background:#FFFFFF!important;color:#333D4B!important;
+    }
+    .st-key-main_nav button p{font-size:.68rem!important}
     </style>''',unsafe_allow_html=True)
     initialize()
     if not st.session_state.get('splash_done'):
