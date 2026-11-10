@@ -165,7 +165,8 @@ def back(page='home'):
     if st.button('‹ 돌아가기',key='back'): go(page)
 
 # 인체 비율을 본뜬 연속 곡선 실루엣. 전면/후면에서 클릭점과 라벨을 분리합니다.
-OUTLINE = 'M -.38,8.8 C -.85,8.82 -.9,9.8 -.48,10.08 C -.2,10.3 .2,10.3 .48,10.08 C .9,9.8 .85,8.82 .38,8.8 L .35,8.42 C .65,8.3 1.1,8.3 1.32,7.94 C 1.62,7.4 1.7,6.62 1.95,5.72 C 2.08,5.35 2.18,4.94 2.03,4.76 C 1.88,4.57 1.66,4.82 1.58,5.1 L 1.04,6.72 C .91,6.2 1.02,5.69 1.08,5.15 C 1.22,4.62 .98,3.65 .85,2.85 L .62,.85 C .92,.52 .96,.25 .67,.22 L .18,.22 C -.03,.22 .02,.56 .09,.91 L .18,3.05 L 0,4.45 L -.18,3.05 L -.09,.91 C -.02,.56 .03,.22 -.18,.22 L -.67,.22 C -.96,.25 -.92,.52 -.62,.85 L -.85,2.85 C -.98,3.65 -1.22,4.62 -1.08,5.15 C -1.02,5.69 -.91,6.2 -1.04,6.72 L -1.58,5.1 C -1.66,4.82 -1.88,4.57 -2.03,4.76 C -2.18,4.94 -2.08,5.35 -1.95,5.72 C -1.7,6.62 -1.62,7.4 -1.32,7.94 C -1.1,8.3 -.65,8.3 -.35,8.42 L -.38,8.8 Z'
+OUTLINE = "M -.25,8.62 C -.25,8.5 -.27,8.38 -.38,8.32 C -.65,8.2 -.94,8.18 -1.09,8.02 C -1.25,7.83 -1.3,7.51 -1.37,7.18 L -1.66,6.12 L -1.86,5.26 C -1.91,5.1 -2.05,4.95 -2.06,4.79 C -2.08,4.62 -1.98,4.59 -1.91,4.72 L -1.86,4.85 C -1.91,4.57 -1.82,4.5 -1.76,4.68 C -1.74,4.5 -1.66,4.55 -1.65,4.74 L -1.66,5.04 L -1.47,5.76 L -1.12,6.65 L -.98,7.18 C -.91,6.89 -.86,6.59 -.82,6.32 C -.78,6.0 -.91,5.65 -.94,5.38 C -1.06,5.02 -.99,4.56 -.9,4.22 L -.67,3.13 C -.62,2.89 -.59,2.77 -.6,2.56 C -.7,2.08 -.58,1.57 -.5,1.13 L -.46,.66 C -.47,.48 -.63,.34 -.65,.23 C -.66,.12 -.48,.1 -.23,.13 C -.04,.16 -.11,.35 -.15,.52 L -.18,.85 C -.14,1.39 -.12,1.92 -.23,2.47 L -.22,2.87 L -.09,4.15 Q 0,4.38 .09,4.15 L .22,2.87 L .23,2.47 C .12,1.92 .14,1.39 .18,.85 L .15,.52 C .11,.35 .04,.16 .23,.13 C .48,.1 .66,.12 .65,.23 C .63,.34 .47,.48 .46,.66 L .5,1.13 C .58,1.57 .7,2.08 .6,2.56 C .59,2.77 .62,2.89 .67,3.13 L .9,4.22 C .99,4.56 1.06,5.02 .94,5.38 C .91,5.65 .78,6 .82,6.32 C .86,6.59 .91,6.89 .98,7.18 L 1.12,6.65 L 1.47,5.76 L 1.66,5.04 L 1.65,4.74 C 1.66,4.55 1.74,4.5 1.76,4.68 C 1.82,4.5 1.91,4.57 1.86,4.85 L 1.91,4.72 C 1.98,4.59 2.08,4.62 2.06,4.79 C 2.05,4.95 1.91,5.1 1.86,5.26 L 1.66,6.12 L 1.37,7.18 C 1.3,7.51 1.25,7.83 1.09,8.02 C .94,8.18 .65,8.2 .38,8.32 C .27,8.38 .25,8.5 .25,8.62 C .45,8.75 .55,8.98 .56,9.21 C .71,9.23 .69,9.54 .57,9.52 C .59,9.92 .4,10.17 0,10.18 C -.4,10.17 -.59,9.92 -.57,9.52 C -.69,9.54 -.71,9.23 -.56,9.21 C -.55,8.98 -.45,8.75 -.25,8.62 Z"
+
 
 def body_map():
     facing=st.segmented_control('신체 방향',['앞면','뒷면'],default='앞면',key='facing') or '앞면'
@@ -173,7 +174,7 @@ def body_map():
     pts=[('머리·얼굴',0,9.5,2.9),('목·어깨',0,8.15,-2.9),
          ('몸통',0,6.65,2.9),('팔·손',-1.7,5.4,-2.9),
          ('골반·엉덩이',0,4.7,2.9),('다리·발',-.55,2.3,-2.9)]
-    fig=go_plot(pts)
+    fig=go_plot(pts,facing)
     generation=st.session_state.get('map_gen',0)
     event=st.plotly_chart(fig,key=f'map_{generation}_{facing}',on_select='rerun',selection_mode='points',use_container_width=True,config={'displayModeBar':False,'scrollZoom':False})
     if event.selection.points:
@@ -200,13 +201,34 @@ def region_screen():
             go('level')
 
 
-def go_plot(pts):
+def go_plot(pts,facing="앞면"):
     fig=pg.Figure()
-    fig.add_shape(type='path',path=OUTLINE,fillcolor='#E6EDF7',line={'color':'#A4B5CE','width':1.7},layer='below')
+    fig.add_shape(type='path',path=OUTLINE,fillcolor='#E3E8ED',line={'color':'#96A5B4','width':1.3},layer='below')
+    # 신체 구조를 드러내는 쇄골·관절·몸통 윤곽선.
+    if facing=='앞면':
+        details=[
+            'M -.79,8.02 Q -.42,7.92 -.1,7.98 M .79,8.02 Q .42,7.92 .1,7.98',
+            'M 0,7.82 L 0,6.92',
+            'M -.72,5.48 Q -.38,5.14 0,4.55 Q .38,5.14 .72,5.48',
+            'M -.54,2.9 Q -.4,2.79 -.25,2.91 M .54,2.9 Q .4,2.79 .25,2.91',
+            'M -.49,9.15 Q -.33,8.8 0,8.73 Q .33,8.8 .49,9.15',
+        ]
+    else:
+        details=[
+            'M 0,8.14 Q -.07,7.04 0,5.65',
+            'M -.72,7.81 Q -.91,7.24 -.43,6.94 M .72,7.81 Q .91,7.24 .43,6.94',
+            'M -.82,4.92 Q -.45,4.57 0,4.85 Q .45,4.57 .82,4.92',
+            'M 0,4.85 L 0,4.4',
+            'M -.54,2.8 L -.28,2.8 M .54,2.8 L .28,2.8',
+        ]
+    for path in details:
+        fig.add_shape(type='path',path=path,line={'color':'#B7C2CC','width':1.1},layer='below')
+    if facing=='앞면':
+        fig.add_shape(type='circle',x0=-.035,x1=.035,y0=6.1,y1=6.17,fillcolor='#B1BCC7',line_width=0,layer='below')
     for part,x,y,lx in pts:
         fig.add_shape(type='line',x0=x,x1=lx*.82,y0=y,y1=y,line={'color':'#C4D3DC','width':1},layer='below')
     # 신체 부위와 글자 라벨 양쪽 모두 같은 선택 이벤트를 반환합니다.
-    fig.add_trace(pg.Scatter(x=[p[1] for p in pts],y=[p[2] for p in pts],mode='markers',customdata=[p[0] for p in pts],marker={'size':24,'color':'#3182F6','opacity':.85},hovertemplate='%{customdata}<extra></extra>'))
+    fig.add_trace(pg.Scatter(x=[p[1] for p in pts],y=[p[2] for p in pts],mode='markers',customdata=[p[0] for p in pts],marker={'size':17,'color':'#3182F6','opacity':.8,'line':{'color':'white','width':2}},hovertemplate='%{customdata}<extra></extra>'))
     fig.add_trace(pg.Scatter(x=[p[3] for p in pts],y=[p[2] for p in pts],mode='markers+text',text=[p[0].replace('왼쪽','왼').replace('오른쪽','오른') for p in pts],customdata=[p[0] for p in pts],textfont={'size':12,'color':'#18384B'},marker={'size':44,'color':'#FFFFFF','opacity':.95},hovertemplate='%{customdata}<extra></extra>'))
     fig.update_layout(height=440,showlegend=False,clickmode='event+select',dragmode=False,margin={'l':0,'r':0,'t':2,'b':0},paper_bgcolor='white',plot_bgcolor='white',xaxis={'visible':False,'range':[-4.05,4.05],'fixedrange':True},yaxis={'visible':False,'range':[0,10.5],'fixedrange':True,'scaleanchor':'x','scaleratio':1})
     return fig
