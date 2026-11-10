@@ -65,12 +65,20 @@ def hashed(password, salt):
     return hashlib.pbkdf2_hmac('sha256',password.encode(),bytes.fromhex(salt),260000).hex()
 
 def create_family(password):
-    if len(password)<10:
-        raise ValueError('비밀번호는 10자 이상으로 설정해 주세요.')
-    fid, salt = uuid.uuid4().hex, secrets.token_hex(16)
+    if len(password)<4:
+        raise ValueError('비밀번호는 4자 이상으로 설정해 주세요.')
+    alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    salt=secrets.token_hex(16)
     with db() as con:
-        con.execute('INSERT INTO families VALUES(?,?,?)',(fid,salt,hashed(password,salt)))
-    return fid
+        for _ in range(30):
+            fid=''.join(secrets.choice(alphabet) for _ in range(6))
+            try:
+                con.execute('INSERT INTO families VALUES(?,?,?)',(fid,salt,hashed(password,salt)))
+                return fid
+            except sqlite3.IntegrityError:
+                continue
+    raise ValueError('초대 코드를 만들지 못했습니다. 다시 시도해 주세요.')
+
 
 def login(fid,password):
     with db() as con:
@@ -231,7 +239,7 @@ def go_plot(pts,facing="앞면"):
     # 신체 부위와 글자 라벨 양쪽 모두 같은 선택 이벤트를 반환합니다.
     fig.add_trace(pg.Scatter(x=[p[1] for p in pts],y=[p[2] for p in pts],mode='markers',customdata=[p[0] for p in pts],marker={'size':17,'color':'#3182F6','opacity':.8,'line':{'color':'white','width':2}},hovertemplate='%{customdata}<extra></extra>'))
     fig.add_trace(pg.Scatter(x=[p[3] for p in pts],y=[p[2] for p in pts],mode='markers+text',text=[p[0].replace('왼쪽','왼').replace('오른쪽','오른') for p in pts],customdata=[p[0] for p in pts],textfont={'size':12,'color':'#18384B'},marker={'size':44,'color':'#FFFFFF','opacity':.95},hovertemplate='%{customdata}<extra></extra>'))
-    fig.update_layout(height=255,showlegend=False,clickmode='event+select',dragmode=False,margin={'l':0,'r':0,'t':2,'b':0},paper_bgcolor='white',plot_bgcolor='white',xaxis={'visible':False,'range':[-4.05,4.05],'fixedrange':True},yaxis={'visible':False,'range':[0,10.5],'fixedrange':True,'scaleanchor':'x','scaleratio':1})
+    fig.update_layout(height=220,showlegend=False,clickmode='event+select',dragmode=False,margin={'l':0,'r':0,'t':2,'b':0},paper_bgcolor='white',plot_bgcolor='white',xaxis={'visible':False,'range':[-4.05,4.05],'fixedrange':True},yaxis={'visible':False,'range':[0,10.5],'fixedrange':True,'scaleanchor':'x','scaleratio':1})
     return fig
 
 def login_screen():
@@ -247,11 +255,12 @@ def login_screen():
     if submitted:
         if not name.strip(): st.error('이름 또는 별명을 입력해 주세요.'); return
         if creating:
-            if len(password)<10: st.error('비밀번호를 10자 이상 입력해 주세요.'); return
+            if len(password)<4: st.error('비밀번호를 4자 이상 입력해 주세요.'); return
             if password!=again: st.error('두 비밀번호가 다릅니다.'); return
             fid=create_family(password)
         else:
             fid=fid.strip()
+            if len(fid)==6: fid=fid.upper()
             if not fid or not password or not login(fid,password):
                 st.error('초대 코드와 비밀번호를 확인해 주세요.'); return
         add_member(fid,name.strip())
@@ -259,7 +268,7 @@ def login_screen():
         st.session_state.who=name.strip()
         st.session_state.token=uuid.uuid4().hex
         go('home')
-    if creating: st.caption('비밀번호 10자 이상 · 초대 코드는 설정에서 확인')
+    if creating: st.caption('비밀번호 4자 이상 · 초대 코드는 설정에서 확인')
 
 
 def setup_screen(fid):
@@ -284,7 +293,9 @@ def home_screen(fid):
         st.session_state.who=names[0]
     if not st.session_state.get('token'):
         st.session_state.token=uuid.uuid4().hex
-    a,b=st.columns([3,1])
+    with st.container(key="home_heading"):
+        home_cols=st.columns([3,1])
+    a,b=home_cols
     with a: st.markdown('### 내 상태 남기기')
     with b:
         if st.button('👤',key='switch_person',help='기록할 가족 바꾸기'): go('choose')
@@ -435,7 +446,7 @@ def main():
     st.markdown('''<style>
     :root {color-scheme:light}
     [data-testid="stAppViewContainer"]{background:#FAF8F4}
-    .block-container{max-width:540px;padding-top:1rem;padding-bottom:calc(100px + env(safe-area-inset-bottom))}
+    .block-container{max-width:540px;padding-top:1rem;padding-bottom:calc(78px + env(safe-area-inset-bottom))}
     header[data-testid="stHeader"]{position:relative;height:2rem;background:#FAF8F4}
     [data-testid="stVerticalBlock"]{gap:.55rem}
     .st-key-main_nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(100%,540px);z-index:999;background:#FAF8F4;padding:8px 10px calc(8px + env(safe-area-inset-bottom));box-sizing:border-box;border-top:1px solid #E8E5DE}
@@ -468,6 +479,25 @@ def main():
     [data-testid="stVerticalBlockBorderWrapper"]{border-radius:22px!important}
     [data-testid="stAlert"]{border-radius:18px}
     @media(max-width:480px){.block-container{padding-left:1rem;padding-right:1rem}div.stButton>button{font-size:1rem;min-height:58px}}
+    /* 内容を隠さず、短い画面では必要な操作へのアクセスを維持 */
+    *,*::before,*::after{box-sizing:border-box}
+    .st-key-home_heading [data-testid="stHorizontalBlock"]{flex-wrap:nowrap!important}
+    .st-key-home_heading [data-testid="stColumn"]{min-width:0!important}
+    .st-key-home_heading [data-testid="stColumn"]:first-child{flex:3 1 0!important}
+    .st-key-home_heading [data-testid="stColumn"]:last-child{flex:1 1 0!important}
+    [data-testid="stPlotlyChart"]{max-width:100%}
+    @media(max-width:600px){
+      header[data-testid="stHeader"]{height:0!important;min-height:0!important}
+      .block-container{padding-top:1rem!important;padding-left:.8rem!important;padding-right:.8rem!important}
+      [data-testid="stVerticalBlock"]{gap:.35rem!important}
+      h3{font-size:1.15rem!important;line-height:1.3!important;margin:0!important;padding-bottom:.2rem!important}
+      div.stButton>button,div.stFormSubmitButton>button{min-height:44px!important;border-radius:14px!important;padding:.35rem .5rem!important}
+      [data-testid="stForm"]{padding:12px!important}
+      [data-testid="stCaptionContainer"] p{font-size:.8rem!important;margin-bottom:0!important}
+      .st-key-main_nav{padding:5px 6px calc(5px + env(safe-area-inset-bottom))!important}
+      .st-key-main_nav button{min-height:46px!important}
+      .st-key-main_nav button p{font-size:.65rem!important;white-space:nowrap!important}
+    }
     </style>''',unsafe_allow_html=True)
     initialize()
     if not st.session_state.get('splash_done'):
