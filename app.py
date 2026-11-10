@@ -202,12 +202,12 @@ def region_screen():
 
 def go_plot(pts):
     fig=pg.Figure()
-    fig.add_shape(type='path',path=OUTLINE,fillcolor='#DCE9EE',line={'color':'#93AFBC','width':1.7},layer='below')
+    fig.add_shape(type='path',path=OUTLINE,fillcolor='#E6EDF7',line={'color':'#A4B5CE','width':1.7},layer='below')
     for part,x,y,lx in pts:
         fig.add_shape(type='line',x0=x,x1=lx*.82,y0=y,y1=y,line={'color':'#C4D3DC','width':1},layer='below')
     # 신체 부위와 글자 라벨 양쪽 모두 같은 선택 이벤트를 반환합니다.
-    fig.add_trace(pg.Scatter(x=[p[1] for p in pts],y=[p[2] for p in pts],mode='markers',customdata=[p[0] for p in pts],marker={'size':24,'color':'#117F83','opacity':.85},hovertemplate='%{customdata}<extra></extra>'))
-    fig.add_trace(pg.Scatter(x=[p[3] for p in pts],y=[p[2] for p in pts],mode='markers+text',text=[p[0].replace('왼쪽','왼').replace('오른쪽','오른') for p in pts],customdata=[p[0] for p in pts],textfont={'size':12,'color':'#18384B'},marker={'size':44,'color':'#F5F8FA','opacity':.95},hovertemplate='%{customdata}<extra></extra>'))
+    fig.add_trace(pg.Scatter(x=[p[1] for p in pts],y=[p[2] for p in pts],mode='markers',customdata=[p[0] for p in pts],marker={'size':24,'color':'#3182F6','opacity':.85},hovertemplate='%{customdata}<extra></extra>'))
+    fig.add_trace(pg.Scatter(x=[p[3] for p in pts],y=[p[2] for p in pts],mode='markers+text',text=[p[0].replace('왼쪽','왼').replace('오른쪽','오른') for p in pts],customdata=[p[0] for p in pts],textfont={'size':12,'color':'#18384B'},marker={'size':44,'color':'#FFFFFF','opacity':.95},hovertemplate='%{customdata}<extra></extra>'))
     fig.update_layout(height=440,showlegend=False,clickmode='event+select',dragmode=False,margin={'l':0,'r':0,'t':2,'b':0},paper_bgcolor='white',plot_bgcolor='white',xaxis={'visible':False,'range':[-4.05,4.05],'fixedrange':True},yaxis={'visible':False,'range':[0,10.5],'fixedrange':True,'scaleanchor':'x','scaleratio':1})
     return fig
 
@@ -243,7 +243,7 @@ def setup_screen(fid):
     back('settings' if members(fid) else 'home')
     st.subheader('가족 추가')
     with st.form('add_member'):
-        name=st.text_input('이름·별명',max_chars=16,placeholder='예: 연주, 엄마, 아빠')
+        name=st.text_input('이름·별명',max_chars=16,placeholder='예: 엄마, 아빠')
         ok=st.form_submit_button('추가',use_container_width=True)
     if ok:
         try: add_member(fid,name)
@@ -255,11 +255,11 @@ def home_screen(fid):
     n=len([r for r in rows if not r['seen']])
     st.subheader('무엇을 할까요?')
     a,b=st.columns(2)
-    with a: button('💛 내 상태 기록','choose')
-    with b: button(f'👪 가족 확인 · {n}','family')
+    with a: button('✚ 상태 기록','choose')
+    with b: button(f'가족 소식 · {n}','family')
     a,b=st.columns(2)
-    with a: button('📅 기록 돌아보기','history')
-    with b: button('🔗 가족 연결','settings')
+    with a: button('내 기록 보기','history')
+    with b: button('가족 관리','settings')
     if not members(fid):
         st.info('먼저 가족 이름을 등록해 주세요.')
         button('가족 이름 추가','setup')
@@ -296,7 +296,7 @@ def level_screen(fid):
     st.subheader(st.session_state.part)
     st.write('얼마나 불편하세요?')
     for level,emoji in [(1,'🙂'),(2,'😟'),(3,'😣')]:
-        if st.button(f'{emoji}  {LEVELS[level]}  ·  저장',key=f'level{level}',use_container_width=True): complete(fid,st.session_state.part,level)
+        if st.button(f'{emoji}  {LEVELS[level]}  ·  저장',key=f'level{level}',type='primary',use_container_width=True): complete(fid,st.session_state.part,level)
 
 def done_screen(fid):
     st.subheader('✅ 가족에게 공유했어요')
@@ -403,10 +403,29 @@ def help_screen():
 def main():
     st.set_page_config(page_title='오늘 어디 아파?',page_icon='💛',layout='centered')
     st.markdown('''<style>
-    .block-container{max-width:760px;padding-top:4.5rem;padding-bottom:1rem}
-    div.stButton>button,div.stFormSubmitButton>button{min-height:54px;border-radius:16px;font-size:1.08rem}
-    h1{font-size:clamp(1.35rem,5vw,2rem)!important} h3{font-size:1.35rem!important}
-    [data-testid="stMetric"]{background:#F0F7F7;border-radius:16px;padding:12px}
+    :root {color-scheme:light}
+    [data-testid="stAppViewContainer"]{background:#F5F7FA}
+    .block-container{max-width:720px;padding-top:4.5rem;padding-bottom:2rem}
+    h1{font-size:clamp(1.4rem,5vw,2rem)!important;font-weight:800!important;color:#191F28!important;letter-spacing:-.05em}
+    h3{font-size:1.4rem!important;font-weight:750!important;color:#191F28!important;letter-spacing:-.035em}
+    p,label{color:#333D4B}
+    [data-testid="stCaptionContainer"] p{color:#6B7684;font-size:.88rem}
+    div.stButton>button,div.stFormSubmitButton>button{
+      min-height:60px;border-radius:20px;border:1px solid #E8EDF3;
+      background:#FFFFFF;color:#333D4B;font-size:1.08rem;font-weight:650;
+      box-shadow:0 3px 12px rgba(25,31,40,.035);transition:background .15s,border .15s}
+    div.stButton>button:hover{background:#EDF4FF;border-color:#B7D2FF;color:#2264CE}
+    div.stButton>button:focus-visible{outline:3px solid #90BAFF;outline-offset:2px}
+    div.stButton>button[kind="primary"],div.stFormSubmitButton>button{
+      background:#3182F6;color:white;border-color:#3182F6}
+    div.stButton>button[kind="primary"]:hover,div.stFormSubmitButton>button:hover{background:#1B64DA;color:white}
+    [data-testid="stMetric"]{background:white;border-radius:22px;padding:20px;border:1px solid #EDF0F4}
+    [data-testid="stMetricValue"]{color:#191F28;font-weight:750}
+    [data-testid="stTextInput"] input{background:white;border-radius:14px;min-height:48px;color:#191F28}
+    [data-testid="stForm"]{background:white;border:1px solid #EDF0F4;border-radius:22px;padding:24px}
+    [data-testid="stVerticalBlockBorderWrapper"]{border-radius:22px!important}
+    [data-testid="stAlert"]{border-radius:18px}
+    @media(max-width:480px){.block-container{padding-left:1rem;padding-right:1rem}div.stButton>button{font-size:1rem;min-height:58px}}
     </style>''',unsafe_allow_html=True)
     initialize()
     a,b=st.columns([5,2])
