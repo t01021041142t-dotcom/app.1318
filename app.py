@@ -560,7 +560,7 @@ def main():
     .st-key-main_nav button p{font-size:.68rem!important}
     /* 하단 메뉴: 본문 버튼 글꼴 규칙과 분리 */
     .st-key-main_nav{
-      bottom:calc(5px + env(safe-area-inset-bottom))!important;
+      bottom:calc(13px + env(safe-area-inset-bottom))!important;
       padding:7px 8px!important;
     }
     .st-key-main_nav button{
