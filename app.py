@@ -1,4 +1,4 @@
-"""오늘 어디 아파? / 실행: streamlit run app.py
+"""우리몸 / 실행: streamlit run app.py
 GitHub에 app.py와 requirements.txt를 같은 위치에 업로드합니다.
 SQLite는 로컬 시연용입니다. Cloud 초기화 시 데이터가 유실될 수 있습니다.
 가족 비밀번호 소지자는 모든 구성원 기록을 조회·삭제할 수 있습니다.
@@ -234,39 +234,66 @@ def go_plot(pts,facing="앞면"):
     return fig
 
 def login_screen():
-    st.subheader('우리 가족 연결')
-    mode=st.segmented_control('접속 방법',['들어가기','처음 만들기'],default='들어가기') or '들어가기'
-    with st.form('login'):
-        fid=st.text_input('가족 ID',value=st.query_params.get('family','')) if mode=='들어가기' else ''
-        password=st.text_input('비밀번호',type='password')
-        again=st.text_input('비밀번호 확인',type='password') if mode=='처음 만들기' else password
-        submitted=st.form_submit_button('가족 공간 만들기' if mode=='처음 만들기' else '들어가기',use_container_width=True)
-    if submitted:
-        blocked=st.session_state.get('blocked')
-        if blocked and now()<blocked:
-            st.error('30초 뒤 다시 시도해 주세요.')
-            return
-        if mode=='처음 만들기':
-            if password!=again: st.error('비밀번호가 서로 달라요.'); return
-            try: fid=create_family(password)
-            except ValueError as e: st.error(str(e)); return
-        elif not login(fid.strip(),password):
-            n=st.session_state.get('failures',0)+1
-            st.session_state.failures=n
-            if n>=5: st.session_state.blocked=now()+timedelta(seconds=30)
-            st.error('가족 ID와 비밀번호를 확인해 주세요.')
-            return
-        st.session_state.fid=fid.strip()
-        st.session_state.failures=0
-        go('home' if members(fid.strip()) else 'setup')
-    if mode=='처음 만들기': st.caption('비밀번호 10자 이상 · 가족 ID는 자동 발급됩니다.')
+    st.subheader('가족의 몸 상태를, 함께 살펴요')
+    st.caption('부위를 누르고 불편도를 고르면 가족에게 공유돼요.')
+    a,b=st.columns(2)
+    with a:
+        with st.container(border=True):
+            st.write('**손쉽게 기록**')
+            st.caption('글을 쓰지 않고 부위로 선택')
+    with b:
+        with st.container(border=True):
+            st.write('**가족과 공유**')
+            st.caption('새 기록과 반복된 불편 확인')
+    mode=st.session_state.get('entry_mode')
+    if mode is None:
+        if st.button('처음이에요 · 가족 공간 만들기',type='primary',use_container_width=True):
+            st.session_state.entry_mode='create';st.rerun()
+        if st.button('초대받았어요 · 가족과 연결',use_container_width=True):
+            st.session_state.entry_mode='join';st.rerun()
+        st.caption('진단 앱이 아닌 가족 건강 기록장입니다.')
+        return
+    if st.button('‹ 시작 화면'):
+        st.session_state.pop('entry_mode',None);st.rerun()
+    if mode=='create':
+        st.write('**가족이 함께 쓸 비밀번호를 정해 주세요**')
+        with st.form('create_family'):
+            password=st.text_input('가족 비밀번호',type='password',help='10자 이상. 가족에게만 알려 주세요.')
+            again=st.text_input('비밀번호 확인',type='password')
+            submitted=st.form_submit_button('만들고 시작하기',use_container_width=True)
+        if submitted:
+            # 가입 입력 오류에는 대기시간이나 로그인 실패 횟수를 적용하지 않음.
+            if len(password)<10:
+                st.error('비밀번호를 10자 이상 입력해 주세요. 바로 수정할 수 있어요.')
+            elif password!=again:
+                st.error('두 비밀번호가 달라요. 확인 칸을 다시 입력해 주세요.')
+            else:
+                st.session_state.fid=create_family(password)
+                go('setup')
+        st.caption('가족 ID는 자동으로 만들어져요. 비밀번호 복구는 지원하지 않아요.')
+    else:
+        st.write('**가족에게 받은 정보로 연결해요**')
+        with st.form('join_family'):
+            fid=st.text_input('초대받은 가족 ID',value=st.query_params.get('family',''))
+            password=st.text_input('가족 비밀번호',type='password')
+            submitted=st.form_submit_button('우리 가족 연결하기',use_container_width=True)
+        if submitted:
+            if not fid.strip() or not password:
+                st.error('가족 ID와 비밀번호를 입력해 주세요.')
+            elif login(fid.strip(),password):
+                st.session_state.fid=fid.strip()
+                go('home' if members(fid.strip()) else 'setup')
+            else:
+                st.error('연결 정보를 확인해 주세요. 가족 ID는 이름이 아닌 초대 코드예요.')
+        st.caption('가족 ID와 비밀번호는 먼저 공간을 만든 가족에게 받아 주세요.')
+
 
 def setup_screen(fid):
     back('settings' if members(fid) else 'home')
-    st.subheader('가족 추가')
+    st.subheader('기록할 가족 이름을 알려 주세요')
     with st.form('add_member'):
         name=st.text_input('이름·별명',max_chars=16,placeholder='예: 엄마, 아빠')
-        ok=st.form_submit_button('추가',use_container_width=True)
+        ok=st.form_submit_button('등록하고 시작하기',use_container_width=True)
     if ok:
         try: add_member(fid,name)
         except ValueError as e: st.error(str(e))
@@ -275,9 +302,10 @@ def setup_screen(fid):
 def home_screen(fid):
     rows=records(fid)
     n=len([r for r in rows if not r['seen']])
-    st.subheader('무엇을 할까요?')
+    st.subheader('우리 가족 건강 기록')
+    st.caption('내 상태를 남기거나 가족의 새 기록을 확인하세요.')
     a,b=st.columns(2)
-    with a: button('✚ 상태 기록','choose')
+    with a: button('✚ 내 상태 남기기','choose')
     with b: button(f'가족 소식 · {n}','family')
     a,b=st.columns(2)
     with a: button('내 기록 보기','history')
@@ -420,10 +448,10 @@ def help_screen():
     st.warning('갑작스러운 심한 가슴 통증·숨참, 한쪽 마비·말 어눌함, 의식 변화 등은 119에 연락하세요. 가족의 앱 확인을 기다리지 마세요.')
     st.write('가족 비밀번호를 가진 사람은 모든 가족의 기록을 조회·삭제할 수 있습니다. 구성원 동의를 받고 최소한의 정보만 입력하세요. 개인별 권한 인증은 없습니다.')
     st.write('로컬 SQLite 시연용: 서버 초기화·재배포 시 유실될 수 있습니다. 백업에는 건강정보가 포함됩니다. 백업 복원·비밀번호 복구는 지원하지 않습니다. 실제 운영 전 영구 DB와 개인정보 보호 보강이 필요합니다.')
-    st.caption('로그인 제한은 현재 브라우저 세션에만 적용됩니다. 휴대폰 크기에 따라 스크롤이 필요합니다.')
+    st.caption('휴대폰 크기에 따라 스크롤이 필요합니다. 공개 운영 전 서버 측 로그인 보호와 개인별 권한 인증을 보강해야 합니다.')
 
 def main():
-    st.set_page_config(page_title='오늘 어디 아파?',page_icon='💛',layout='centered')
+    st.set_page_config(page_title='우리몸',page_icon='🌿',layout='centered')
     st.markdown('''<style>
     :root {color-scheme:light}
     [data-testid="stAppViewContainer"]{background:#F5F7FA}
@@ -451,7 +479,7 @@ def main():
     </style>''',unsafe_allow_html=True)
     initialize()
     a,b=st.columns([5,2])
-    with a: st.title('💛 오늘 어디 아파?')
+    with a: st.title('우리몸')
     with b:
         if st.button('ⓘ 안내',use_container_width=True):
             if st.session_state.get('page')!='help': st.session_state.help_return=st.session_state.get('page','home')
