@@ -180,9 +180,9 @@ OUTLINE = "M -.25,8.62 C -.25,8.5 -.27,8.38 -.38,8.32 C -.65,8.2 -.94,8.18 -1.09
 def body_map():
     facing=st.segmented_control('신체 방향',['앞면','뒷면'],default='앞면',key='facing') or '앞면'
     # 큰 영역 먼저 선택하여 작은 화면에서 라벨이 겹치지 않도록 합니다.
-    pts=[('머리·얼굴',0,9.5,2.9),('목·어깨',0,8.15,-2.9),
-         ('몸통',0,6.65,2.9),('팔·손',-1.7,5.4,-2.9),
-         ('골반·엉덩이',0,4.7,2.9),('다리·발',-.55,2.3,-2.9)]
+    pts=[('머리·얼굴',0,9.5,2.9),('목·어깨',0,8.15,-3.65),
+         ('몸통',0,6.65,2.9),('팔·손',-1.7,5.4,-3.65),
+         ('골반·엉덩이',0,4.7,2.9),('다리·발',-.55,2.3,-3.65)]
     fig=go_plot(pts,facing)
     generation=st.session_state.get('map_gen',0)
     event=st.plotly_chart(fig,key=f'map_{generation}_{facing}',on_select='rerun',selection_mode='points',use_container_width=True,config={'displayModeBar':False,'scrollZoom':False})
@@ -203,11 +203,13 @@ def region_screen():
     st.caption(f"{st.session_state.who} · 2 / 3")
     st.subheader(region)
     st.caption('본인 기준 왼쪽·오른쪽')
-    cols=st.columns(2)
-    for i,part in enumerate(REGIONS[region]):
-        if cols[i%2].button(part,key='detail_'+part,use_container_width=True):
-            st.session_state.part=part
-            go('level')
+    with st.container(key='region_grid'):
+        for start in range(0,len(REGIONS[region]),2):
+            cols=st.columns(2)
+            for col,part in zip(cols,REGIONS[region][start:start+2]):
+                if col.button(part,key='detail_'+part,use_container_width=True):
+                    st.session_state.part=part
+                    go('level')
 
 
 def go_plot(pts,facing="앞면"):
@@ -238,8 +240,8 @@ def go_plot(pts,facing="앞면"):
         fig.add_shape(type='line',x0=x,x1=lx*.82,y0=y,y1=y,line={'color':'#C4D3DC','width':1},layer='below')
     # 신체 부위와 글자 라벨 양쪽 모두 같은 선택 이벤트를 반환합니다.
     fig.add_trace(pg.Scatter(x=[p[1] for p in pts],y=[p[2] for p in pts],mode='markers',customdata=[p[0] for p in pts],marker={'size':17,'color':'#3182F6','opacity':.8,'line':{'color':'white','width':2}},hovertemplate='%{customdata}<extra></extra>'))
-    fig.add_trace(pg.Scatter(x=[p[3] for p in pts],y=[p[2] for p in pts],mode='markers+text',text=[p[0].replace('왼쪽','왼').replace('오른쪽','오른') for p in pts],customdata=[p[0] for p in pts],textfont={'size':12,'color':'#18384B'},marker={'size':44,'color':'#FFFFFF','opacity':.95},hovertemplate='%{customdata}<extra></extra>'))
-    fig.update_layout(height=220,showlegend=False,clickmode='event+select',dragmode=False,margin={'l':0,'r':0,'t':2,'b':0},paper_bgcolor='white',plot_bgcolor='white',xaxis={'visible':False,'range':[-4.05,4.05],'fixedrange':True},yaxis={'visible':False,'range':[0,10.5],'fixedrange':True,'scaleanchor':'x','scaleratio':1})
+    fig.add_trace(pg.Scatter(x=[p[3] for p in pts],y=[p[2] for p in pts],mode='markers+text',text=[p[0].replace('왼쪽','왼').replace('오른쪽','오른') for p in pts],customdata=[p[0] for p in pts],textfont={'size':11,'color':'#18384B'},marker={'size':25,'color':'#FFFFFF','opacity':.95},hovertemplate='%{customdata}<extra></extra>'))
+    fig.update_layout(height=220,showlegend=False,clickmode='event+select',dragmode=False,margin={'l':0,'r':0,'t':2,'b':0},paper_bgcolor='white',plot_bgcolor='white',xaxis={'visible':False,'range':[-5.15,5.15],'fixedrange':True},yaxis={'visible':False,'range':[0,10.5],'fixedrange':True,'scaleanchor':'x','scaleratio':1})
     return fig
 
 def login_screen():
@@ -498,6 +500,18 @@ def main():
       .st-key-main_nav button{min-height:46px!important}
       .st-key-main_nav button p{font-size:.65rem!important;white-space:nowrap!important}
     }
+    /* 最終上書き: 見出しと入力ラベルに独立した行を確保 */
+    h1,h2,h3{height:auto!important;line-height:1.45!important;margin:0!important;padding:0 0 .3rem!important}
+    [data-testid="stHeading"]{height:auto!important;min-height:2rem!important;margin-bottom:.25rem!important}
+    [data-testid="stMarkdownContainer"] p{line-height:1.5!important}
+    [data-testid="stCaptionContainer"]{min-height:1.3rem!important;margin-bottom:.3rem!important}
+    [data-testid="stVerticalBlock"]{gap:.65rem!important}
+    [data-testid="stWidgetLabel"]{height:auto!important;min-height:1.5rem!important;margin-bottom:.25rem!important}
+    .st-key-region_grid [data-testid="stHorizontalBlock"]{flex-wrap:nowrap!important;gap:10px!important}
+    .st-key-region_grid [data-testid="stColumn"]{min-width:0!important;flex:1 1 0!important;width:calc(50% - 5px)!important}
+    .st-key-region_grid button{width:100%!important;min-height:50px!important}
+    .st-key-region_grid button p{font-size:.95rem!important}
+    .st-key-main_nav [data-testid="stVerticalBlock"]{gap:0!important}
     </style>''',unsafe_allow_html=True)
     initialize()
     if not st.session_state.get('splash_done'):
