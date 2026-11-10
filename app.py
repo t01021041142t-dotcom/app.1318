@@ -1,4 +1,4 @@
-"""케어온 / 실행: streamlit run app.py
+"""MODO / 실행: streamlit run app.py
 GitHub에 app.py와 requirements.txt를 같은 위치에 업로드합니다.
 SQLite는 로컬 시연용입니다. Cloud 초기화 시 데이터가 유실될 수 있습니다.
 가족 비밀번호 소지자는 모든 구성원 기록을 조회·삭제할 수 있습니다.
@@ -451,10 +451,10 @@ def help_screen():
     st.caption('휴대폰 크기에 따라 스크롤이 필요합니다. 공개 운영 전 서버 측 로그인 보호와 개인별 권한 인증을 보강해야 합니다.')
 
 def main():
-    st.set_page_config(page_title='케어온',page_icon='🌿',layout='centered')
+    st.set_page_config(page_title='MODO',page_icon='🌿',layout='centered')
     st.markdown('''<style>
     :root {color-scheme:light}
-    [data-testid="stAppViewContainer"]{background:#F5F7FA}
+    [data-testid="stAppViewContainer"]{background:#FAF8F4}
     .block-container{max-width:720px;padding-top:4.5rem;padding-bottom:2rem}
     h1{font-size:clamp(1.4rem,5vw,2rem)!important;font-weight:800!important;color:#191F28!important;letter-spacing:-.05em}
     h3{font-size:1.4rem!important;font-weight:750!important;color:#191F28!important;letter-spacing:-.035em}
@@ -464,11 +464,13 @@ def main():
       min-height:60px;border-radius:20px;border:1px solid #E8EDF3;
       background:#FFFFFF;color:#333D4B;font-size:1.08rem;font-weight:650;
       box-shadow:0 3px 12px rgba(25,31,40,.035);transition:background .15s,border .15s}
-    div.stButton>button:hover{background:#EDF4FF;border-color:#B7D2FF;color:#2264CE}
-    div.stButton>button:focus-visible{outline:3px solid #90BAFF;outline-offset:2px}
+    div.stButton>button:hover{background:#F1EEE8;border-color:#CDC5B9;color:#353C37}
+    div.stButton>button:focus-visible{outline:3px solid #8AAB99;outline-offset:2px}
     div.stButton>button[kind="primary"],div.stFormSubmitButton>button{
-      background:#3182F6;color:white;border-color:#3182F6}
-    div.stButton>button[kind="primary"]:hover,div.stFormSubmitButton>button:hover{background:#1B64DA;color:white}
+      background:#DCEADF;color:#263D30;border-color:#CADCCF}
+    div.stButton>button[kind="primary"]:hover,div.stFormSubmitButton>button:hover{background:#CADFCE;color:#263D30}
+    div.stButton>button[kind="primary"] p,div.stFormSubmitButton>button p{color:#263D30!important}
+    div.stButton>button p{font-weight:650}
     [data-testid="stMetric"]{background:white;border-radius:22px;padding:20px;border:1px solid #EDF0F4}
     [data-testid="stMetricValue"]{color:#191F28;font-weight:750}
     [data-testid="stTextInput"] input{background:white;border-radius:14px;min-height:48px;color:#191F28}
@@ -479,7 +481,7 @@ def main():
     </style>''',unsafe_allow_html=True)
     initialize()
     a,b=st.columns([5,2])
-    with a: st.title('케어온')
+    with a: st.title('MODO')
     with b:
         if st.button('ⓘ 안내',use_container_width=True):
             if st.session_state.get('page')!='help': st.session_state.help_return=st.session_state.get('page','home')
