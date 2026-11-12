@@ -74,73 +74,107 @@ def auth():
     st.subheader('반가워요 🌱')
     mode=st.segmented_control('가족 공간',['로그인','새로 만들기'],default='로그인',label_visibility='collapsed')
     if mode=='새로 만들기':
-        st.caption('학생 비밀번호와 부모님 비밀번호를 따로 정해요.')
         with st.form('new'):
+            code=st.text_input('가족 아이디',placeholder='직접 정해 주세요 · 예: moa2026',max_chars=24).strip().lower()
             p=st.text_input('학생 비밀번호 · 4자 이상',type='password',max_chars=128)
-            p2=st.text_input('학생 비밀번호 확인',type='password',max_chars=128)
             q=st.text_input('부모님 비밀번호 · 4자 이상',type='password',max_chars=128)
-            q2=st.text_input('부모님 비밀번호 확인',type='password',max_chars=128)
-            ok=st.form_submit_button('가족 공간 만들기',use_container_width=True,type='primary')
+            goal=st.number_input('내 주간 목표 · 분',min_value=30,max_value=10080,value=None,step=30,placeholder='직접 정해 주세요 · 예: 300')
+            ok=st.form_submit_button('만들고 바로 시작',use_container_width=True,type='primary')
         if ok:
+            import re
+            if not re.fullmatch(r'[a-z][a-z0-9_]{2,23}',code): st.error('아이디는 영문으로 시작하는 영문·숫자·밑줄 3~24자로 정해 주세요.'); return
             if min(len(p),len(q))<4: st.error('비밀번호는 각각 4자 이상이에요.'); return
-            if p!=p2 or q!=q2: st.error('비밀번호 확인이 일치하지 않아요.'); return
-            if p==q: st.error('학생·부모님 비밀번호를 다르게 설정해 주세요.'); return
+            if p==q: st.error('학생·부모님 비밀번호를 다르게 정해 주세요.'); return
+            if goal is None: st.error('내 주간 목표를 정해 주세요.'); return
             salt=secrets.token_hex(16)
-            for _ in range(20):
-                code=''.join(secrets.choice('ABCDEFGHJKLMNPQRSTUVWXYZ23456789') for _ in range(6))
-                try:
-                    execute('INSERT INTO homes(id,salt,student_pw,parent_pw) VALUES(?,?,?,?)',(code,salt,digest(p,salt),digest(q,salt)))
-                    st.session_state.created=code; break
-                except sqlite3.IntegrityError: continue
-            else: st.error('공간을 만들지 못했어요. 다시 시도해 주세요.')
-        if st.session_state.get('created'):
-            st.success('만들었어요! 코드를 보관한 뒤 로그인해 주세요.')
-            st.code(st.session_state.created)
+            try:
+                execute('INSERT INTO homes(id,salt,student_pw,parent_pw,goal) VALUES(?,?,?,?,?)',(code,salt,digest(p,salt),digest(q,salt),goal))
+            except sqlite3.IntegrityError:
+                st.error('이미 사용 중인 아이디예요. 다른 아이디를 정해 주세요.'); return
+            st.session_state.home=code; st.session_state.role='학생'; st.session_state.page='오늘'
+            st.rerun()
     else:
         with st.form('login'):
-            code=st.text_input('가족 코드',max_chars=6).strip().upper()
+            code=st.text_input('가족 아이디',max_chars=24,placeholder='기존 가족 코드도 사용할 수 있어요').strip()
             role=st.radio('나는',['학생','부모님'],horizontal=True)
             p=st.text_input('비밀번호',type='password',max_chars=128)
             ok=st.form_submit_button('시작하기',use_container_width=True,type='primary')
         if ok:
-            rows=query('SELECT * FROM homes WHERE id=?',(code,))
+            rows=query('SELECT * FROM homes WHERE id IN (?,?,?)',(code,code.lower(),code.upper()))
             field='student_pw' if role=='학생' else 'parent_pw'
-            if rows and hmac.compare_digest(rows[0][field],digest(p,rows[0]['salt'])):
-                st.session_state.home=code; st.session_state.role=role; st.session_state.page='오늘'; st.rerun()
-            else: st.error('코드와 선택한 역할의 비밀번호를 확인해 주세요.')
+            match=next((r for r in rows if hmac.compare_digest(r[field],digest(p,r['salt']))),None)
+            if match:
+                st.session_state.home=match['id']; st.session_state.role=role; st.session_state.page='오늘'; st.rerun()
+            else: st.error('가족 아이디와 선택한 역할의 비밀번호를 확인해 주세요.')
+
+@st.dialog('🎯 내 주간 목표')
+def goal_dialog(home,h,parent):
+    locked=bool(query('SELECT 1 FROM claims WHERE home=? AND week=?',(home,str(week_start(today())))))
+    if locked: st.caption('이번 주 보상은 요청 당시 목표로 계산돼요. 변경값은 다음 주부터 적용됩니다.')
+    with st.form('my_goal'):
+        a,b=st.columns(2)
+        hours=a.number_input('주당 시간',min_value=0,max_value=168,value=int(h['goal'])//60)
+        minutes=b.number_input('추가 분',min_value=0,max_value=59,value=int(h['goal'])%60)
+        if parent:
+            reward=st.number_input('목표 보상 · 원',min_value=0,max_value=1000000,value=int(h['reward']),step=1000)
+        else:
+            reward=h['reward']; st.caption(f'보상 {reward:,}원 · 금액은 부모님이 약속 메뉴에서 정해요.')
+        ok=st.form_submit_button('내 목표 저장',type='primary',use_container_width=True)
+    if ok:
+        if hours*60+minutes<30: st.error('주간 목표는 30분 이상으로 정해 주세요.'); return
+        if hours*60+minutes>10080: st.error('한 주는 168시간이에요.'); return
+        execute('UPDATE homes SET goal=?,reward=? WHERE id=?',(hours*60+minutes,reward,home))
+        st.session_state.pop('new_goal',None); st.rerun()
+
+@st.dialog('✏️ 공부 기록')
+def record_dialog(home):
+    with st.form('record',clear_on_submit=True):
+        subject=st.text_input('과목',max_chars=30,placeholder='예: 생명과학')
+        day=st.date_input('공부한 날',value=today(),min_value=today()-timedelta(days=365),max_value=today())
+        mins=st.number_input('집중한 시간 · 분',min_value=5,max_value=720,value=30,step=5)
+        kind=st.segmented_control('학습 종류',['개념','복습','문제풀이','오답'],default='복습')
+        ok=st.form_submit_button('기록하기',type='primary',use_container_width=True)
+    if ok:
+        if not subject.strip() or not kind: st.error('과목과 학습 종류를 선택해 주세요.'); return
+        if query('SELECT COALESCE(SUM(minutes),0) n FROM logs WHERE home=? AND day=?',(home,str(day)))[0]['n']+mins>1440:
+            st.error('하루 총 기록은 24시간을 넘을 수 없어요.'); return
+        execute('INSERT INTO logs(home,day,subject,minutes,kind) VALUES(?,?,?,?,?)',(home,str(day),subject.strip(),mins,kind))
+        st.session_state.saved_notice=True; st.rerun()
+
+@st.dialog('▤ 최근 학습')
+def records_dialog(home,parent):
+    rows=query('SELECT * FROM logs WHERE home=? ORDER BY day DESC,id DESC',(home,))
+    if not rows: st.info('아직 기록이 없어요.'); return
+    pages=max(1,(len(rows)+3)//4)
+    page=st.number_input('페이지',min_value=1,max_value=pages,value=1)
+    for r in rows[(page-1)*4:page*4]:
+        a,b=st.columns([5,1])
+        a.write(f"{r['day'][5:]} · {r['subject']} · {r['minutes']}분 · {r['kind']}")
+        if not parent and b.button('삭제',key=f"del{r['id']}"):
+            execute('DELETE FROM logs WHERE id=? AND home=?',(r['id'],home)); st.rerun()
 
 def dashboard(home,h,parent):
     w=week_start(today()); minutes=total_for_week(home,w)
-    icon,label=signal(minutes,h['goal'],today())
-    st.subheader(f'{icon} {label}')
+    claim=query('SELECT * FROM claims WHERE home=? AND week=?',(home,str(w)))
+    actual_goal=claim[0]['goal'] if claim else h['goal']
+    actual_reward=claim[0]['reward'] if claim else h['reward']
+    icon,label=signal(minutes,actual_goal,today())
+    st.markdown(f'### {icon} {label}')
     a,b=st.columns(2)
     a.metric('이번 주 공부',f'{minutes//60}시간 {minutes%60}분')
-    b.metric('주간 목표',f"{h['goal']//60}시간 {h['goal']%60}분")
-    st.progress(min(1.,minutes/max(h['goal'],1)),text=f"목표 {round(minutes/h['goal']*100)}% · 약속한 보상 {h['reward']:,}원")
-    st.caption('신호등은 성적이 아닌, 오늘까지의 주간 공부량 기준이에요.')
+    b.metric('내 주간 목표',f'{actual_goal//60}시간 {actual_goal%60}분')
+    st.progress(min(1.,minutes/max(actual_goal,1)),text=f'달성 {round(minutes/max(actual_goal,1)*100)}% · 보상 {actual_reward:,}원')
+    a,b=st.columns(2)
+    if a.button('🎯 목표 설정',use_container_width=True): goal_dialog(home,h,parent)
+    if b.button('▤ 학습 내역',use_container_width=True): records_dialog(home,parent)
     if not parent:
-        with st.expander('＋ 공부 기록',expanded=True):
-            with st.form('record',clear_on_submit=True):
-                subject=st.text_input('과목',max_chars=30,placeholder='예: 생명과학')
-                cols=st.columns(2)
-                day=cols[0].date_input('공부한 날',value=today(),min_value=today()-timedelta(days=365),max_value=today())
-                mins=cols[1].number_input('집중한 시간 · 분',min_value=5,max_value=720,value=30,step=5)
-                kind=st.segmented_control('학습 종류',['개념','복습','문제풀이','오답'],default='복습')
-                ok=st.form_submit_button('기록하기',type='primary',use_container_width=True)
-            if ok:
-                if not subject.strip() or not kind: st.error('과목과 학습 종류를 선택해 주세요.')
-                elif query('SELECT COALESCE(SUM(minutes),0) n FROM logs WHERE home=? AND day=?',(home,str(day)))[0]['n']+mins>1440: st.error('하루 총 기록은 24시간을 넘을 수 없어요.')
-                else:
-                    execute('INSERT INTO logs(home,day,subject,minutes,kind) VALUES(?,?,?,?,?)',(home,str(day),subject.strip(),mins,kind)); st.rerun()
-    else: st.info('자녀가 직접 남긴 기록이에요. 실제 학습을 자동 인증하지는 않아요.')
-    st.markdown('#### 최근 기록')
-    logs=query('SELECT * FROM logs WHERE home=? ORDER BY day DESC,id DESC LIMIT 8',(home,))
-    for r in logs:
-        c1,c2=st.columns([5,1])
-        c1.write(f"{r['day'][5:]} · {r['subject']} · {r['minutes']}분 · {r['kind']}")
-        if not parent and c2.button('삭제',key=f"del{r['id']}"):
-            execute('DELETE FROM logs WHERE id=? AND home=?',(r['id'],home)); st.rerun()
-    if not logs: st.caption('첫 25분부터 시작해 볼까요?')
+        if st.button('✏️ 공부 남기기',type='primary',use_container_width=True): record_dialog(home)
+    else: st.caption('자녀가 직접 남긴 기록 · 함께 응원해 주세요.')
+    if st.session_state.pop('saved_notice',False): st.success('기록했어요 ✓')
+    if st.session_state.get('new_goal'):
+        st.caption('🎯 목표 설정을 눌러 나만의 첫 목표를 정해 주세요.')
+    else:
+        st.caption('신호등 ⓘ 오늘까지의 예정 공부량 기준')
 
 def plans(home,parent):
     if not parent:
@@ -268,10 +302,11 @@ def rewards(home,h,parent):
 
 def settings(home,parent):
     st.subheader('우리 가족 공간')
-    st.code(home)
-    st.caption('학생·부모님은 각자의 비밀번호로 같은 코드에 접속해요.')
+    st.write(f'가족 아이디 · **{home}**')
+    st.caption('부모님도 이 아이디와 부모님 비밀번호로 로그인해요.')
     with st.expander('이용 안내 · 저장 · AI 연결'):
         st.write('모아: 매일의 공부를 모아 간호대라는 목표로. 학습 계획과 가족의 응원을 연결해요.')
+        st.write('주간 목표는 오늘 화면의 🎯 목표 설정에서 직접 정해요. 보상 요청이 있는 주는 요청 당시 목표로 표시돼요.')
         st.write('신호등: 오늘까지의 예정 공부량 대비 100% 이상 초록, 65% 이상 노랑, 미만 빨강. 공부 시간은 직접 입력하며 성적·집중력 평가는 아니에요.')
         st.warning('기본 SQLite는 시연용이에요. Streamlit Cloud에서는 재시작·재배포로 데이터가 사라질 수 있어요. 장기 사용은 영구 저장소 연결이 필요합니다. 가족 코드를 비밀번호와 함께 공개하지 마세요.')
         st.write('AI 연결: Streamlit 앱 설정의 Secrets에 아래 세 항목을 넣으세요. 실제 채팅 API 계약·키가 필요하고 이용료가 발생할 수 있어요. URL은 HTTPS 채팅 completions 주소, MODEL은 해당 서비스의 모델 식별자입니다.')
@@ -288,7 +323,7 @@ def main():
     st.markdown('''<style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap');
     html,body,[class*="css"],.stApp,button,input,textarea,p{font-family:'Noto Sans KR',sans-serif!important}
-    .stApp{background:#F8F7F3;color:#293B34}
+    .stApp{background:#F8F7F3;color:#293B34} div[data-testid="stMetricValue"]{font-size:clamp(21px,5vw,30px)} .st-key-screen_panel [data-testid="stHorizontalBlock"]{flex-wrap:nowrap!important} .st-key-screen_panel [data-testid="stColumn"]{min-width:0!important;flex:1 1 0!important}
     .block-container{max-width:620px;padding:7.8rem 1rem 6.8rem}
     #MainMenu,footer{visibility:hidden}
     .dday{position:fixed;top:3.3rem;left:50%;transform:translateX(-50%);width:min(588px,calc(100% - 32px));box-sizing:border-box;z-index:100;background:#E6EFE5;border:1px solid #D3E1D2;border-radius:19px;padding:15px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
@@ -300,7 +335,7 @@ def main():
     .st-key-nav [data-testid="stColumn"]{min-width:0!important;flex:1 1 0!important;width:0!important}
     .st-key-nav button{min-height:44px!important;padding:3px 1px!important;border:0!important}
     .st-key-nav button p{font-size:12px!important;white-space:nowrap!important}
-    .splash{height:65dvh;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#52775B}.splash b{font-size:64px;letter-spacing:.12em}.splash span{font-size:14px;margin-top:12px}
+    .st-key-screen_panel{max-height:calc(100dvh - 250px);overflow-y:auto;overflow-x:hidden;padding:2px 2px 10px;overscroll-behavior:contain} .splash{height:65dvh;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#52775B}.splash b{font-size:64px;letter-spacing:.12em}.splash span{font-size:14px;margin-top:12px}
     @media(max-width:400px){.block-container{padding-left:12px;padding-right:12px}.st-key-nav button p{font-size:11px!important}}
     </style>''',unsafe_allow_html=True)
     init()
@@ -320,11 +355,12 @@ def main():
         for col,(label,name) in zip(cols,[('⌂ 오늘','오늘'),('▦ 계획','계획'),('↗ 성적','성적'),('🎁 약속','약속'),('⚙ 설정','설정')]):
             col.button(label,key='nav_'+name,use_container_width=True,type='primary' if page==name else 'secondary',on_click=switch,args=(name,))
     if parent: st.caption('부모님 · 함께 응원하는 화면')
-    if page=='오늘': dashboard(home,h,parent)
-    elif page=='계획': plans(home,parent)
-    elif page=='성적': grades_screen(home,parent)
-    elif page=='약속': rewards(home,h,parent)
-    else: settings(home,parent)
+    with st.container(key='screen_panel'):
+        if page=='오늘': dashboard(home,h,parent)
+        elif page=='계획': plans(home,parent)
+        elif page=='성적': grades_screen(home,parent)
+        elif page=='약속': rewards(home,h,parent)
+        else: settings(home,parent)
 
 if __name__=='__main__':
     try: main()
