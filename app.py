@@ -64,7 +64,7 @@ def phase_plan(exam,topics):
 def current_exam(home):
     return query('SELECT * FROM exams WHERE home=? ORDER BY CASE WHEN due>=? THEN 0 ELSE 1 END,CASE WHEN due>=? THEN due END ASC,due DESC,id DESC',(home,str(today()),str(today())))
 def badge(exams):
-    if not exams: label='목표 날짜를 정해요'; sub='홈의 📅 목표 날짜 버튼'
+    if not exams: label='목표 날짜를 정해요'; sub='계획에서 날짜 설정'
     else:
         e=exams[0]; delta=(date.fromisoformat(e['due'])-today()).days
         label='D-day' if delta==0 else (f'D−{delta}' if delta>0 else f'D+{abs(delta)}')
@@ -122,13 +122,13 @@ def timer_panel(home):
     a,b=st.columns([3,2]);a.markdown(f'**⏱ {h:02}:{m:02}:{ss:02}**')
     if b.button('일시정지' if active else '시작',key='timer_toggle',type='primary' if not active else 'secondary',use_container_width=True):
         set_timer(home,not active);st.rerun()
-    st.caption(f'오늘 타이머 · 이번 주 합계 {duration(total_for_week(home,week_start(today())))}')
+    st.metric('이번 주',duration(total_for_week(home,week_start(today()))))
 
 @st.dialog('⏱ 학습 타이머')
 def timer_dialog(home):
     if not student_only():return
     timer_panel(home)
-    st.caption('1분 단위로 학습 합계에 자동 반영돼요. 타이머 시간은 수동으로 중복 입력하지 마세요. 중지할 때까지 경과시간을 기록하며 실제 집중 여부는 감지하지 않아요.')
+    st.caption('✓ 자동 합산 · 종료 시 일시정지')
 
 def pick(rows,key):
     if not rows: return None
@@ -148,6 +148,7 @@ def guide():
         st.write('🎯 학생: 목표 설정 → 공부 기록 → 보상 요청')
         st.write('👪 부모님: 기록 확인 → 용돈 설정 → 승인')
         st.caption('신호등은 오늘까지의 예정 시간 대비 초록 100% 이상, 노랑 65% 이상, 빨강 65% 미만이에요. 직접 입력한 시간 기준이며 실제 집중력 평가는 아니에요.')
+        st.caption('타이머는 중지까지 경과시간을 측정해요. 실제 집중 여부는 감지하지 않으며 수동 기록과 중복 입력하지 마세요.')
     elif section=='저장':
         st.warning('기본 저장은 시연용이에요. Cloud 재시작·재배포 시 사라질 수 있어요. 장기 사용에는 영구 저장소가 필요해요.')
         st.caption('아이디와 비밀번호를 공개하지 마세요. 백업은 내려받기 전용이며 자동 복원·자동 송금은 없어요.')
@@ -296,9 +297,7 @@ def dashboard(home,h,parent):
     unread=query('SELECT COUNT(*) n FROM messages WHERE home=? AND seen=0',(home,))[0]['n']
     if b.button(f'💬 메시지{f" · {unread}" if unread else ""}',use_container_width=True):messages_dialog(home)
     if not parent:
-        a,b=st.columns(2)
-        if a.button('📅 목표 날짜',use_container_width=True):date_dialog(home)
-        if b.button('⏱ 타이머',use_container_width=True):timer_dialog(home)
+        if st.button('⏱ 타이머',use_container_width=True):timer_dialog(home)
 
 @st.dialog('＋ 시험 설정')
 def exam_dialog(home,e=None):
