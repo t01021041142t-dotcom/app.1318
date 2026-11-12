@@ -151,6 +151,13 @@ def family_url(base,fid):
     q=[(k,v) for k,v in parse_qsl(u.query) if k!='family']
     return urlunsplit((u.scheme,u.netloc,u.path,urlencode(q+[('family',fid)]),''))
 
+def logout():
+    """클릭 콜백에서 인증 상태를 지우고 시작 화면 재실행을 방지합니다."""
+    st.session_state.clear()
+    st.session_state.splash_done = True
+    st.session_state.page = 'home'
+
+
 def go(page):
     st.session_state.page=page
     st.rerun()
@@ -628,7 +635,7 @@ def main():
         button('취소','history')
     elif page=='logout':
         st.subheader('로그아웃할까요?')
-        if st.button('로그아웃',use_container_width=True): st.session_state.clear(); st.rerun()
+        st.button('로그아웃',use_container_width=True,on_click=logout)
         button('취소','settings')
     else: go('home')
 
