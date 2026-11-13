@@ -83,6 +83,12 @@ def init_extra():
         c.execute('CREATE TABLE IF NOT EXISTS timers(home TEXT PRIMARY KEY REFERENCES homes(id),running INTEGER NOT NULL DEFAULT 0,last REAL NOT NULL DEFAULT 0)')
         c.execute('CREATE TABLE IF NOT EXISTS timer_days(home TEXT NOT NULL REFERENCES homes(id),day TEXT NOT NULL,seconds REAL NOT NULL DEFAULT 0,PRIMARY KEY(home,day))')
 
+def init_timer_subject():
+    with db() as c:
+        names={r['name'] for r in c.execute('PRAGMA table_info(timers)')}
+        if 'subject' not in names:c.execute("ALTER TABLE timers ADD COLUMN subject TEXT NOT NULL DEFAULT ''")
+        c.execute('CREATE TABLE IF NOT EXISTS timer_subjects(home TEXT NOT NULL,day TEXT NOT NULL,subject TEXT NOT NULL,seconds REAL NOT NULL DEFAULT 0,PRIMARY KEY(home,day,subject))')
+
 def timer_tick(home,now=None):
     now=time.time() if now is None else now
     with db() as c:
@@ -95,6 +101,7 @@ def timer_tick(home,now=None):
             midnight=datetime.combine(d+timedelta(days=1),datetime.min.time(),tzinfo=TZ).timestamp()
             end=min(midnight,now);delta=end-cursor
             c.execute('INSERT INTO timer_days(home,day,seconds) VALUES(?,?,?) ON CONFLICT(home,day) DO UPDATE SET seconds=seconds+excluded.seconds',(home,str(d),delta))
+            c.execute('INSERT INTO timer_subjects(home,day,subject,seconds) VALUES(?,?,?,?) ON CONFLICT(home,day,subject) DO UPDATE SET seconds=seconds+excluded.seconds',(home,str(d),r['subject'],delta))
             cursor=end
         c.execute('UPDATE timers SET last=? WHERE home=?',(now,home))
 
@@ -114,21 +121,33 @@ def total_for_week(home,w):
     return manual+int(measured//60)
 
 @st.fragment(run_every=1)
-def timer_panel(home):
+def timer_panel(home,compact=False):
     timer_tick(home)
-    row=query('SELECT * FROM timers WHERE home=?',(home,));active=bool(row and row[0]['running'])
+    rows=query('SELECT * FROM timers WHERE home=?',(home,))
+    active=bool(rows and rows[0]['running'])
+    subject=rows[0]['subject'] if rows else ''
+    if compact and not active:return
     sec=query('SELECT COALESCE(SUM(seconds),0) n FROM timer_days WHERE home=? AND day=?',(home,str(today())))[0]['n']
-    h=int(sec)//3600;m=int(sec)%3600//60;ss=int(sec)%60
-    a,b=st.columns([3,2]);a.markdown(f'**⏱ {h:02}:{m:02}:{ss:02}**')
+    clock=f'{int(sec)//3600:02}:{int(sec)%3600//60:02}:{int(sec)%60:02}'
+    if compact:
+        st.markdown(f'**⏱ {esc(subject or "공부")} · {clock}**')
+        if st.button('일시정지',key='home_timer_pause'):
+            set_timer(home,False);st.rerun()
+        return
+    selected=st.text_input('과목',value=subject,placeholder='과목 입력',disabled=active,key='timer_subject_input')
+    a,b=st.columns([3,2]);a.markdown(f'**⏱ {clock}**')
     if b.button('일시정지' if active else '시작',key='timer_toggle',type='primary' if not active else 'secondary',use_container_width=True):
+        if not active:
+            if not selected.strip():st.warning('과목을 입력해 주세요.');return
+            with db() as c:
+                c.execute('INSERT INTO timers(home,running,last,subject) VALUES(?,0,0,?) ON CONFLICT(home) DO UPDATE SET subject=excluded.subject',(home,selected.strip()))
         set_timer(home,not active);st.rerun()
-    st.metric('이번 주',duration(total_for_week(home,week_start(today()))))
 
 @st.dialog('⏱ 학습 타이머')
 def timer_dialog(home):
     if not student_only():return
     timer_panel(home)
-    st.caption('✓ 자동 합산 · 종료 시 일시정지')
+
 
 def pick(rows,key):
     if not rows: return None
@@ -285,6 +304,7 @@ def allowance_dialog(home,h):
         execute('UPDATE homes SET reward=? WHERE id=?',(int(clean),home));st.rerun()
 
 def dashboard(home,h,parent):
+    if not parent:timer_panel(home,compact=True)
     w=week_start(today());mins=total_for_week(home,w)
     claim=query('SELECT * FROM claims WHERE home=? AND week=?',(home,str(w)))
     goal=claim[0]['goal'] if claim else h['goal']; reward=claim[0]['reward'] if claim else h['reward']
@@ -535,6 +555,7 @@ def main():
     @media(max-height:720px){.block-container{padding-top:5rem}h3{font-size:21px!important;margin:0!important;padding:.2rem 0!important}[data-testid="stVerticalBlock"]{gap:.4rem}[data-testid="stMetric"]{padding:5px}div.stButton>button{min-height:36px}}
     </style>''',unsafe_allow_html=True)
     init_extra()
+    init_timer_subject()
     if not st.session_state.get('splash'):
         st.session_state.splash=True;holder=st.empty();holder.markdown('<div class="splash">ODID</div>',unsafe_allow_html=True);time.sleep(3);holder.empty();st.rerun()
     with st.container(key='help'):
