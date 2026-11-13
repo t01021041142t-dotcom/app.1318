@@ -303,6 +303,14 @@ def allowance_dialog(home,h):
             st.error('0~1,000,000원 사이의 숫자를 입력해 주세요.');return
         execute('UPDATE homes SET reward=? WHERE id=?',(int(clean),home));st.rerun()
 
+def weekly_clock(home):
+    w=week_start(today())
+    timer_tick(home)
+    manual=query('SELECT COALESCE(SUM(minutes),0) n FROM logs WHERE home=? AND day>=? AND day<?',(home,str(w),str(w+timedelta(days=7))))[0]['n']
+    measured=query('SELECT COALESCE(SUM(seconds),0) n FROM timer_days WHERE home=? AND day>=? AND day<?',(home,str(w),str(w+timedelta(days=7))))[0]['n']
+    seconds=int(manual*60+measured)
+    return f'{seconds//3600}시간 {seconds%3600//60}분 {seconds%60}초'
+
 def dashboard(home,h,parent):
     if not parent:timer_panel(home,compact=True)
     w=week_start(today());mins=total_for_week(home,w)
@@ -310,7 +318,7 @@ def dashboard(home,h,parent):
     goal=claim[0]['goal'] if claim else h['goal']; reward=claim[0]['reward'] if claim else h['reward']
     icon,label=signal(mins,goal,today())
     st.markdown(f'### {icon} '+('자녀의 이번 주' if parent else label))
-    a,b=st.columns(2);a.metric('자녀 학습 시간' if parent else '학습 시간',f'{mins//60}시간 {mins%60}분');b.metric('자녀 목표' if parent else '내 목표',f'{goal//60}시간 {goal%60}분')
+    a,b=st.columns(2);a.metric('자녀 학습 시간' if parent else '학습 시간',weekly_clock(home));b.metric('자녀 목표' if parent else '내 목표',f'{goal//60}시간 {goal%60}분')
     st.progress(min(1.,mins/max(goal,1)),text=f'{round(mins/max(goal,1)*100)}% · 보상 {reward:,}원')
     a,b=st.columns(2)
     if parent:
