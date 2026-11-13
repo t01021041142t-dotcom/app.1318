@@ -337,7 +337,7 @@ def dashboard(home,h,parent):
         if b.button('📣 확인 요청',use_container_width=True):nudge_dialog(home)
     else:
         if a.button('🎯 목표 수정',use_container_width=True):goal_dialog(home,h)
-        if b.button('⏱ 공부 시작 · 일시정지',use_container_width=True,type='primary'):timer_dialog(home)
+        if b.button('⏱ 공부 시작',use_container_width=True,type='primary'):timer_dialog(home)
     a,b=st.columns(2)
     if a.button('▤ 자녀 최근 학습' if parent else '▤ 최근 학습',use_container_width=True):records_dialog(home)
     unread=query('SELECT COUNT(*) n FROM messages WHERE home=? AND seen=0',(home,))[0]['n']
