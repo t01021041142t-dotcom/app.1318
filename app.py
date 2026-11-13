@@ -1,4 +1,4 @@
-"""GROWUP · streamlit run app.py
+"""ODID · streamlit run app.py
 배포: app.py / requirements.txt. 영구 디스크에는 MOA_DB_PATH를 지정하세요.
 선택적 Gemini AI: Streamlit Secrets에 GEMINI_API_KEY, GEMINI_MODEL 설정. 외부 전송 전 화면에서 동의를 받습니다.
 SQLite 기본 저장은 시연용이며 Streamlit Cloud 재시작/재배포 시 유실될 수 있습니다.
@@ -158,10 +158,10 @@ def guide():
         st.caption('연결 전에는 기본 계획을 사용해요. AI 전송 전 동의를 받으며 성적 향상·합격을 보장하지 않아요.')
 
 def auth():
-    st.markdown('<div class="brand">GROWUP</div>',unsafe_allow_html=True)
+    st.markdown('<div class="brand">ODID</div>',unsafe_allow_html=True)
     mode=st.segmented_control('접속',['로그인','가입'],default='로그인',label_visibility='collapsed')
     with st.form('auth'):
-        uid=st.text_input('가족 아이디',max_chars=24).strip().lower()
+        uid=st.text_input('가족 아이디 · 영문 입력',placeholder='영문·숫자·밑줄 3~24자',max_chars=24).strip().lower()
         if mode=='로그인':
             role=st.segmented_control('역할',['학생','부모님'],default='학생',label_visibility='collapsed')
             pw=st.text_input('비밀번호',type='password',max_chars=128)
@@ -170,9 +170,11 @@ def auth():
             pw=a.text_input('학생 비밀번호',type='password',max_chars=128)
             pp=b.text_input('부모님 비밀번호',type='password',max_chars=128)
             a,b=st.columns(2)
-            gh=a.number_input('주간 목표 · 시간',min_value=0,max_value=168,value=None,step=1)
-            gm=b.number_input('분',min_value=0,max_value=59,value=0,step=5)
-            goal=None if gh is None else gh*60+gm
+            gh_raw=a.text_input('주간 목표 · 시간',placeholder='시간',max_chars=3)
+            gh=int(gh_raw) if gh_raw.isascii() and gh_raw.isdigit() else None
+            gm_raw=b.text_input('분',value='0',max_chars=2)
+            gm=int(gm_raw) if gm_raw.isascii() and gm_raw.isdigit() else -1
+            goal=None if gh is None or not 0<=gm<=59 else gh*60+gm
         ok=st.form_submit_button('시작하기' if mode=='로그인' else '가입하고 시작',type='primary',use_container_width=True)
     if not ok: return
     if mode=='가입':
@@ -200,10 +202,15 @@ def goal_dialog(home,h):
     if locked: st.caption('요청한 보상의 목표는 유지돼요. 변경은 요청 전 주에 적용돼요.')
     with st.form('goal'):
         a,b=st.columns(2)
-        hours=a.number_input('시간',min_value=0,max_value=168,value=h['goal']//60)
-        mins=b.number_input('분',min_value=0,max_value=59,value=h['goal']%60)
+        hours_raw=a.text_input('시간',value=str(h['goal']//60),max_chars=3)
+        mins_raw=b.text_input('분',value=str(h['goal']%60),max_chars=2)
         ok=st.form_submit_button('목표 저장',use_container_width=True,type='primary')
     if ok:
+        if not (hours_raw.isascii() and hours_raw.isdigit() and mins_raw.isascii() and mins_raw.isdigit()):
+            st.error('시간과 분은 숫자로 입력해 주세요.');return
+        hours,mins=int(hours_raw),int(mins_raw)
+        if not 0<=mins<=59:
+            st.error('분은 0~59로 입력해 주세요.');return
         n=hours*60+mins
         if not 30<=n<=10080: st.error('30분~168시간 사이로 정해 주세요.');return
         execute('UPDATE homes SET goal=? WHERE id=?',(n,home));st.rerun()
@@ -497,7 +504,7 @@ def settings(home,parent):
     st.button('로그아웃',on_click=logout,use_container_width=True)
 
 def main():
-    st.set_page_config(page_title='GROWUP',page_icon='🌱',layout='centered')
+    st.set_page_config(page_title='ODID',page_icon='🌱',layout='centered')
     st.markdown('''<style>
     [data-testid="InputInstructions"],[data-testid="stInputInstructions"]{display:none!important}
     .st-key-calendar [data-testid="stHorizontalBlock"]{gap:3px!important}.st-key-calendar button{min-height:28px!important;height:28px!important;padding:0!important;border-radius:8px!important}.st-key-calendar button p{font-size:12px!important}.st-key-calendar [data-testid="stVerticalBlock"]{gap:2px!important}
@@ -505,7 +512,9 @@ def main():
     .block-container{max-width:580px;padding:5.8rem 1rem 6rem}
     header[data-testid="stHeader"]{height:0;background:transparent} #MainMenu,footer{visibility:hidden}
     .brand{text-align:center;font-size:34px;font-weight:800;letter-spacing:.05em;color:#CB625E;margin:0 0 12px}
-    .splash{height:60dvh;display:flex;align-items:center;justify-content:center;color:#CB625E;font-weight:800;font-size:clamp(38px,10vw,60px);letter-spacing:.06em}
+    @keyframes odid-appear{0%{opacity:0;transform:translateY(20px) scale(.88);filter:blur(8px)}100%{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}}
+    @media(prefers-reduced-motion:reduce){.splash{animation:none!important}}
+    .splash{animation:odid-appear 1.2s cubic-bezier(.2,.7,.2,1) both;height:60dvh;display:flex;align-items:center;justify-content:center;color:#CB625E;font-weight:800;font-size:clamp(38px,10vw,60px);letter-spacing:.06em}
     .dday{position:fixed;top:13px;left:50%;transform:translateX(-50%);width:min(420px,calc(100% - 100px));z-index:100;background:#F4E2DF;border-radius:16px;padding:12px 16px;display:flex;justify-content:space-between;gap:10px;box-sizing:border-box}
     .dday b{font-size:21px;color:#AD4B48;white-space:nowrap}.dday span{font-size:12px;text-align:right;max-width:68%;overflow-wrap:anywhere}
     .st-key-help{position:fixed;left:max(10px,calc(50% - 275px));top:15px;width:40px;z-index:1000}
@@ -527,7 +536,7 @@ def main():
     </style>''',unsafe_allow_html=True)
     init_extra()
     if not st.session_state.get('splash'):
-        st.session_state.splash=True;holder=st.empty();holder.markdown('<div class="splash">GROWUP</div>',unsafe_allow_html=True);time.sleep(3);holder.empty();st.rerun()
+        st.session_state.splash=True;holder=st.empty();holder.markdown('<div class="splash">ODID</div>',unsafe_allow_html=True);time.sleep(3);holder.empty();st.rerun()
     with st.container(key='help'):
         if st.button('ⓘ',help='이용 안내'):guide()
     home=st.session_state.get('home')
