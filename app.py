@@ -134,7 +134,7 @@ def timer_panel(home,compact=False):
     sec=query('SELECT COALESCE(SUM(seconds),0) n FROM timer_days WHERE home=? AND day=?',(home,str(today())))[0]['n']
     clock=f'{int(sec)//3600:02}:{int(sec)%3600//60:02}:{int(sec)%60:02}'
     if compact:
-        st.markdown(f'**⏱ {esc(subject or "공부")} · {clock}**')
+        st.markdown(f'<div style="text-align:center;background:#F4E2DF;border-radius:18px;padding:14px;margin-top:8px"><small>{esc(subject or "공부")}</small><br><strong style="font-size:28px">{clock}</strong></div>',unsafe_allow_html=True)
         if st.button('일시정지',key='home_timer_pause'):
             set_timer(home,False);st.rerun()
         return
@@ -322,7 +322,6 @@ def weekly_clock(home):
     return f'{seconds//3600}시간 {seconds%3600//60}분 {seconds%60}초'
 
 def dashboard(home,h,parent):
-    if not parent:timer_panel(home,compact=True)
     w=week_start(today());mins=total_for_week(home,w)
     claim=query('SELECT * FROM claims WHERE home=? AND week=?',(home,str(w)))
     goal=claim[0]['goal'] if claim else h['goal']; reward=claim[0]['reward'] if claim else h['reward']
@@ -342,7 +341,7 @@ def dashboard(home,h,parent):
     unread=query('SELECT COUNT(*) n FROM messages WHERE home=? AND seen=0',(home,))[0]['n']
     if b.button(f'💬 메시지{f" · {unread}" if unread else ""}',use_container_width=True):messages_dialog(home)
     if not parent:
-        if st.button('⏱ 타이머',use_container_width=True):timer_dialog(home)
+        timer_panel(home,compact=True)
 
 @st.dialog('＋ 시험 설정')
 def exam_dialog(home,e=None):
@@ -465,30 +464,48 @@ def grade_dialog(home):
     with st.form('grade'):
         a,b=st.columns(2);subject=a.text_input('과목',max_chars=30);title=b.text_input('시험 이름',max_chars=40)
         a,b=st.columns(2);day=a.date_input('시험 본 날짜',max_value=today(),value=today());grade=b.selectbox('내 등급',list(range(1,(scale or 5)+1)))
-        a,b=st.columns(2)
-        target=a.selectbox('최종 목표 등급',list(range(1,(scale or 5)+1)))
-        next_target=b.selectbox('다음 시험 목표 등급',list(range(1,(scale or 5)+1)))
         ok=st.form_submit_button('저장',type='primary',use_container_width=True)
     if ok:
         if not subject.strip() or not title.strip():st.error('과목과 시험을 입력해 주세요.');return
-        execute('INSERT INTO grades(home,day,subject,title,grade,scale,target,next_target) VALUES(?,?,?,?,?,?,?,?)',(home,str(day),subject.strip(),title.strip(),grade,scale or 5,target,next_target));st.rerun()
+        execute('INSERT INTO grades(home,day,subject,title,grade,scale) VALUES(?,?,?,?,?,?)',(home,str(day),subject.strip(),title.strip(),grade,scale or 5));st.rerun()
+
+@st.dialog('🎯 시험 목표')
+def grade_target_dialog(home):
+    if not student_only():return
+    scale=st.segmented_control('등급제',[5,9],default=5,key='target_scale') or 5
+    with st.form('grade_target'):
+        subject=st.text_input('과목')
+        title=st.text_input('목표 시험 이름')
+        a,b=st.columns(2)
+        current=a.selectbox('현재 등급',list(range(1,scale+1)))
+        goal=b.selectbox('이번 시험 목표 등급',list(range(1,scale+1)))
+        ok=st.form_submit_button('목표 저장',use_container_width=True,type='primary')
+    if ok:
+        if not subject.strip() or not title.strip():st.error('과목과 시험 이름을 입력해 주세요.');return
+        execute('INSERT INTO grade_targets(home,subject,title,current,goal,scale) VALUES(?,?,?,?,?,?)',(home,subject.strip(),title.strip(),current,goal,scale));st.rerun()
 
 def grades_screen(home,parent):
-    a,b=st.columns([3,1]);a.markdown('### 자녀 성적' if parent else '### 내 성적')
-    if not parent and b.button('＋',use_container_width=True):grade_dialog(home)
+    with db() as c:
+        c.execute('CREATE TABLE IF NOT EXISTS grade_targets(id INTEGER PRIMARY KEY,home TEXT NOT NULL REFERENCES homes(id),subject TEXT,title TEXT,current INTEGER,goal INTEGER,scale INTEGER)')
+    st.markdown('### 자녀 성적' if parent else '### 내 성적')
+    tab=st.segmented_control('성적 메뉴',['시험 목표','성적 기록'],default='시험 목표',label_visibility='collapsed')
+    if tab=='시험 목표':
+        if not parent and st.button('🎯 목표 입력',use_container_width=True):grade_target_dialog(home)
+        rows=query('SELECT * FROM grade_targets WHERE home=? ORDER BY id DESC',(home,));r=pick(rows,'target_index')
+        if not r:st.caption('시험 목표를 입력해 주세요.');return
+        st.markdown(f"**{esc(r['subject'])} · {esc(r['title'])}**")
+        a,b=st.columns(2);a.metric('현재 등급',f"{r['current']}등급");b.metric('이번 시험 목표',f"{r['goal']}등급")
+        st.caption(f"{r['scale']}등급제")
+        return
+    if not parent and st.button('＋ 성적 입력',use_container_width=True):grade_dialog(home)
     rows=query('SELECT * FROM grades WHERE home=? ORDER BY day DESC,id DESC',(home,));r=pick(rows,'grade_index')
-    if not r:st.info('아직 성적 기록이 없어요.');return
+    if not r:st.caption('아직 성적 기록이 없어요.');return
     st.metric(r['subject'],f"{r['grade']}등급")
-    a,b=st.columns(2)
-    a.metric('최종 목표',f"{r.get('target') or '—'}등급")
-    b.metric('다음 시험 목표',f"{r.get('next_target') or '—'}등급")
     st.write(r['title']);st.caption(f"{r['day']} · {r['scale']}등급제")
-    prev=next((x for x in rows if x['subject']==r['subject'] and x['scale']==r['scale'] and (x['day'],x['id'])<(r['day'],r['id'])),None)
-    if prev:
-        diff=prev['grade']-r['grade'];st.caption('이전 대비 유지' if diff==0 else f"이전 대비 {abs(diff)}등급 {'향상' if diff>0 else '하락'}")
     if not parent:
         yes=st.checkbox('이 성적 삭제')
         if st.button('삭제',disabled=not yes):execute('DELETE FROM grades WHERE id=? AND home=?',(r['id'],home));st.rerun()
+
 
 def week_calendar(home):
     import calendar
