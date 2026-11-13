@@ -79,6 +79,8 @@ def student_only():
 def init_extra():
     init()
     with db() as c:
+        c.execute('CREATE TABLE IF NOT EXISTS topic_completions(home TEXT,topic INTEGER,day TEXT,PRIMARY KEY(home,topic,day))')
+    with db() as c:
         existing={r['name'] for r in c.execute('PRAGMA table_info(grades)')}
         for col in ('target','next_target'):
             if col not in existing:c.execute(f'ALTER TABLE grades ADD COLUMN {col} INTEGER')
@@ -335,13 +337,12 @@ def dashboard(home,h,parent):
         if b.button('📣 확인 요청',use_container_width=True):nudge_dialog(home)
     else:
         if a.button('🎯 목표 수정',use_container_width=True):goal_dialog(home,h)
-        if b.button('⏱ 공부 시작',use_container_width=True,type='primary'):timer_dialog(home)
+        if b.button('⏱ 공부 시작 · 일시정지',use_container_width=True,type='primary'):timer_dialog(home)
     a,b=st.columns(2)
     if a.button('▤ 자녀 최근 학습' if parent else '▤ 최근 학습',use_container_width=True):records_dialog(home)
     unread=query('SELECT COUNT(*) n FROM messages WHERE home=? AND seen=0',(home,))[0]['n']
     if b.button(f'💬 메시지{f" · {unread}" if unread else ""}',use_container_width=True):messages_dialog(home)
-    if not parent:
-        timer_panel(home,compact=True)
+
 
 @st.dialog('＋ 시험 설정')
 def exam_dialog(home,e=None):
@@ -377,7 +378,11 @@ def topics_dialog(e,parent):
         st.success('✓ 학습 완료') if r['done'] else st.caption('○ 아직 학습 중')
     else:
         done=st.checkbox('학습 완료',value=bool(r['done']),key=f"done{r['id']}")
-        if done!=bool(r['done']):execute('UPDATE topics SET done=? WHERE id=? AND exam=?',(int(done),r['id'],e['id']));st.rerun()
+        if done!=bool(r['done']):
+            execute('UPDATE topics SET done=? WHERE id=? AND exam=?',(int(done),r['id'],e['id']))
+            if done:execute('INSERT OR IGNORE INTO topic_completions(home,topic,day) VALUES(?,?,?)',(st.session_state.home,r['id'],str(today())))
+            else:execute('DELETE FROM topic_completions WHERE home=? AND topic=? AND day=?',(st.session_state.home,r['id'],str(today())))
+            st.rerun()
 
 @st.dialog('✨ 전략')
 def strategy_dialog(home,e):
@@ -507,6 +512,26 @@ def grades_screen(home,parent):
         if st.button('삭제',disabled=not yes):execute('DELETE FROM grades WHERE id=? AND home=?',(r['id'],home));st.rerun()
 
 
+def clock_text(sec):
+    sec=int(sec)
+    return f'{sec//3600}시간 {sec%3600//60}분 {sec%60}초'
+
+@st.dialog('📅 하루 공부')
+def calendar_detail(home,day):
+    timer_tick(home)
+    st.markdown(f'**{day}**')
+    rows=query('SELECT subject,SUM(seconds) seconds FROM timer_subjects WHERE home=? AND day=? GROUP BY subject',(home,str(day)))
+    total=query('SELECT COALESCE(SUM(seconds),0) n FROM timer_days WHERE home=? AND day=?',(home,str(day)))[0]['n']
+    st.metric('순공시간',clock_text(total))
+    for r in rows:st.write(f"**{esc(r['subject'] or '공부')}** · {clock_text(r['seconds'])}")
+    unassigned=max(0,total-sum(r['seconds'] for r in rows))
+    if unassigned:st.caption('과목 미지정 · '+clock_text(unassigned))
+    if not total:st.caption('공부 기록 없음')
+    st.markdown('**완료한 시험범위**')
+    topics=query('SELECT t.subject,t.title FROM topic_completions c JOIN topics t ON t.id=c.topic JOIN exams e ON e.id=t.exam WHERE c.home=? AND e.home=? AND c.day=?',(home,home,str(day)))
+    for t in topics:st.write(f"✓ {esc(t['subject'])} · {esc(t['title'])}")
+    if not topics:st.caption('완료 기록 없음')
+
 def week_calendar(home):
     import calendar
     base=st.session_state.get('calendar_month',today().replace(day=1))
@@ -520,6 +545,8 @@ def week_calendar(home):
     chosen_day=st.session_state.get('calendar_day',today());chosen=week_start(chosen_day)
     # Actual logged days only. Timer totals have already been synchronized by rewards.
     studied={r['day'] for r in query('SELECT day FROM logs WHERE home=? UNION SELECT day FROM timer_days WHERE home=? AND seconds>=1',(home,home))}
+    seconds_by_day={r['day']:r['seconds'] for r in query('SELECT day,seconds FROM timer_days WHERE home=?',(home,))}
+    st.caption('🟢 2시간↑ · 🟡 1시간↑ · 🔴 1시간 미만 · 빈칸: 기록 없음')
     with st.container(key='calendar'):
         cols=st.columns(7)
         for col,name in zip(cols,['월','화','수','목','금','토','일']):col.caption(name)
@@ -527,9 +554,10 @@ def week_calendar(home):
             cols=st.columns(7)
             for col,d in zip(cols,week):
                 if d.month!=base.month:col.write('');continue
-                label=str(d.day)+('·' if str(d) in studied else '')
+                sec=seconds_by_day.get(str(d),0)
+                label=str(d.day)+('🟢' if sec>=7200 else '🟡' if sec>=3600 else '🔴' if sec>0 else '')
                 if col.button(label,key=f'cal_{d}',type='primary' if week_start(d)==chosen else 'secondary',use_container_width=True):
-                    st.session_state.calendar_day=d;st.rerun()
+                    st.session_state.calendar_day=d;calendar_detail(home,d)
     return chosen
 
 def rewards(home,h,parent):
