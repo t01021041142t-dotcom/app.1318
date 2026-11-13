@@ -52,7 +52,7 @@ def week_start(d): return d-timedelta(days=d.weekday())
 def signal(minutes,goal,day):
     expected=goal*(day.weekday()+1)/7
     rate=minutes/max(expected,1)
-    return ('🟢','좋은 흐름이에요') if rate>=1 else (('🟡','조금씩 따라가요') if rate>=.65 else ('🔴','작게 다시 시작해요'))
+    return ('🟢','좋은 흐름이에요') if rate>=1 else (('🟡','조금씩 따라가요') if rate>=.65 else ('🔴','오늘부터 차근차근'))
 def phase_plan(exam,topics):
     start=date.fromisoformat(exam['created']); due=date.fromisoformat(exam['due'])
     span=max(1,(due-start).days+1)
@@ -78,6 +78,10 @@ def student_only():
 
 def init_extra():
     init()
+    with db() as c:
+        existing={r['name'] for r in c.execute('PRAGMA table_info(grades)')}
+        for col in ('target','next_target'):
+            if col not in existing:c.execute(f'ALTER TABLE grades ADD COLUMN {col} INTEGER')
     with db() as c:
         c.execute('CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY,home TEXT NOT NULL REFERENCES homes(id),day TEXT NOT NULL,body TEXT NOT NULL,seen INTEGER NOT NULL DEFAULT 0)')
         c.execute('CREATE TABLE IF NOT EXISTS timers(home TEXT PRIMARY KEY REFERENCES homes(id),running INTEGER NOT NULL DEFAULT 0,last REAL NOT NULL DEFAULT 0)')
@@ -177,7 +181,7 @@ def guide():
         st.caption('연결 전에는 기본 계획을 사용해요. AI 전송 전 동의를 받으며 성적 향상·합격을 보장하지 않아요.')
 
 def auth():
-    st.markdown('<div class="brand">ODID</div>',unsafe_allow_html=True)
+    st.markdown('<div class="brand">ODID</div><div class="tagline">공부를 쌓고, 목표에 가까이</div>',unsafe_allow_html=True)
     mode=st.segmented_control('접속',['로그인','가입'],default='로그인',label_visibility='collapsed')
     with st.form('auth'):
         uid=st.text_input('가족 아이디',placeholder='영문·숫자',max_chars=24).strip().lower()
@@ -189,7 +193,7 @@ def auth():
             pw=a.text_input('학생 비밀번호',type='password',max_chars=128)
             pp=b.text_input('부모님 비밀번호',type='password',max_chars=128)
             a,b=st.columns(2)
-            gh_raw=a.text_input('주간 목표 · 시간',placeholder='시간',max_chars=3)
+            gh_raw=a.text_input('시간',placeholder='시간',max_chars=3)
             gh=int(gh_raw) if gh_raw.isascii() and gh_raw.isdigit() else None
             gm_raw=b.text_input('분',value='0',max_chars=2)
             gm=int(gm_raw) if gm_raw.isascii() and gm_raw.isdigit() else -1
@@ -332,7 +336,7 @@ def dashboard(home,h,parent):
         if b.button('📣 확인 요청',use_container_width=True):nudge_dialog(home)
     else:
         if a.button('🎯 목표 수정',use_container_width=True):goal_dialog(home,h)
-        if b.button('✏️ 공부 기록',use_container_width=True,type='primary'):record_dialog(home)
+        if b.button('⏱ 공부 시작',use_container_width=True,type='primary'):timer_dialog(home)
     a,b=st.columns(2)
     if a.button('▤ 자녀 최근 학습' if parent else '▤ 최근 학습',use_container_width=True):records_dialog(home)
     unread=query('SELECT COUNT(*) n FROM messages WHERE home=? AND seen=0',(home,))[0]['n']
@@ -382,6 +386,7 @@ def strategy_dialog(home,e):
     request=st.text_area('학습 요청',height=80,placeholder='암기가 약해요. 하루 1시간으로 계획해 줘.')
     key=config('GEMINI_API_KEY');model=config('GEMINI_MODEL') or 'gemini-3.5-flash'
     if not key:
+        if not st.button('요청 보내기 · 전략 만들기',type='primary',use_container_width=True):return
         blocks=phase_plan(e,ts);current=next((r for r in blocks if r[0]<=today()<=r[1]),blocks[-1])
         left=sum(not r['done'] for r in ts);days=max(1,(date.fromisoformat(e['due'])-today()).days+1)
         st.write(f'**{current[2]}** · 하루 범위 {max(1,(left+days-1)//days)}개' if left else '**범위 완료 · 오답을 다시 확인하세요.**')
@@ -389,7 +394,7 @@ def strategy_dialog(home,e):
         if any(w in request for w in ['암기','외우']):st.write('암기 → 책 덮고 떠올리기 → 다음 날 다시 확인하기 순서로 반복하세요.')
         elif '오답' in request:st.write('틀린 문제를 다시 풀고, 틀린 이유와 필요한 개념을 한 줄로 정리하세요.')
         else:st.write(tips[current[2]])
-        st.caption('자동 계획 · AI 미연결. 요청은 암기·오답 키워드만 반영해요.')
+        st.caption('규칙 기반 자동 계획 · 암기·오답 요청 반영')
         return
     consent=st.checkbox('시험 범위·남은 기간·최근 등급을 Gemini로 보내는 데 동의해요.')
     if st.button('맞춤 전략 만들기',disabled=not consent,type='primary',use_container_width=True):
@@ -460,10 +465,13 @@ def grade_dialog(home):
     with st.form('grade'):
         a,b=st.columns(2);subject=a.text_input('과목',max_chars=30);title=b.text_input('시험 이름',max_chars=40)
         a,b=st.columns(2);day=a.date_input('시험 본 날짜',max_value=today(),value=today());grade=b.selectbox('내 등급',list(range(1,(scale or 5)+1)))
+        a,b=st.columns(2)
+        target=a.selectbox('최종 목표 등급',list(range(1,(scale or 5)+1)))
+        next_target=b.selectbox('다음 시험 목표 등급',list(range(1,(scale or 5)+1)))
         ok=st.form_submit_button('저장',type='primary',use_container_width=True)
     if ok:
         if not subject.strip() or not title.strip():st.error('과목과 시험을 입력해 주세요.');return
-        execute('INSERT INTO grades(home,day,subject,title,grade,scale) VALUES(?,?,?,?,?,?)',(home,str(day),subject.strip(),title.strip(),grade,scale or 5));st.rerun()
+        execute('INSERT INTO grades(home,day,subject,title,grade,scale,target,next_target) VALUES(?,?,?,?,?,?,?,?)',(home,str(day),subject.strip(),title.strip(),grade,scale or 5,target,next_target));st.rerun()
 
 def grades_screen(home,parent):
     a,b=st.columns([3,1]);a.markdown('### 자녀 성적' if parent else '### 내 성적')
@@ -471,6 +479,9 @@ def grades_screen(home,parent):
     rows=query('SELECT * FROM grades WHERE home=? ORDER BY day DESC,id DESC',(home,));r=pick(rows,'grade_index')
     if not r:st.info('아직 성적 기록이 없어요.');return
     st.metric(r['subject'],f"{r['grade']}등급")
+    a,b=st.columns(2)
+    a.metric('최종 목표',f"{r.get('target') or '—'}등급")
+    b.metric('다음 시험 목표',f"{r.get('next_target') or '—'}등급")
     st.write(r['title']);st.caption(f"{r['day']} · {r['scale']}등급제")
     prev=next((x for x in rows if x['subject']==r['subject'] and x['scale']==r['scale'] and (x['day'],x['id'])<(r['day'],r['id'])),None)
     if prev:
@@ -545,7 +556,7 @@ def main():
     .stApp{background:#FCF8F7;color:#443633}
     .block-container{max-width:580px;padding:5.8rem 1rem 6rem}
     header[data-testid="stHeader"]{height:0;background:transparent} #MainMenu,footer{visibility:hidden}
-    .brand{text-align:center;font-size:34px;font-weight:800;letter-spacing:.05em;color:#CB625E;margin:0 0 12px}
+    .tagline{text-align:center;font-size:14px;color:#8B7774;margin-bottom:14px}.brand{text-align:center;font-size:34px;font-weight:800;letter-spacing:.05em;color:#CB625E;margin:-18px 0 2px}
     @keyframes odid-appear{0%{opacity:0;transform:translateY(20px) scale(.88);filter:blur(8px)}100%{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}}
     @media(prefers-reduced-motion:reduce){.splash{animation:none!important}}
     .splash{animation:odid-appear 1.2s cubic-bezier(.2,.7,.2,1) both;height:60dvh;display:flex;align-items:center;justify-content:center;color:#CB625E;font-weight:800;font-size:clamp(38px,10vw,60px);letter-spacing:.06em}
