@@ -256,11 +256,17 @@ def record_dialog(home):
 def records_dialog(home):
     timer_tick(home)
     rows=query('SELECT * FROM logs WHERE home=? ORDER BY day DESC,id DESC',(home,))
-    rows += [{'id':None,'day':r['day'],'subject':'타이머','minutes':int(r['seconds']//60),'kind':'자동 측정'} for r in query('SELECT * FROM timer_days WHERE home=? AND seconds>=60',(home,))]
+    rows += [{'id':None,'day':r['day'],'subject':r['subject'] or '타이머','minutes':0,'seconds':int(r['seconds']),'kind':'자동 측정'} for r in query('SELECT * FROM timer_subjects WHERE home=? AND seconds>=1',(home,))]
+    # Preserve records created before per-subject tracking was introduced.
+    for old in query('SELECT d.day,d.seconds-COALESCE((SELECT SUM(t.seconds) FROM timer_subjects t WHERE t.home=d.home AND t.day=d.day),0) remaining FROM timer_days d WHERE d.home=?',(home,)):
+        if old['remaining']>=1:
+            rows.append({'id':None,'day':old['day'],'subject':'타이머','minutes':0,'seconds':int(old['remaining']),'kind':'자동 측정'})
     rows.sort(key=lambda r:(r['day'],r['id'] or 0),reverse=True)
     r=pick(rows,'log_index')
     if not r:st.info('아직 기록이 없어요.');return
-    st.subheader(f"{r['subject']} · {duration(r['minutes'])}")
+    seconds=r.get('seconds',r['minutes']*60)
+    label=f'{seconds//3600}시간 {seconds%3600//60}분 {seconds%60}초'
+    st.subheader(f"{r['subject']} · {label}")
     st.caption(f"{r['day']} · {r['kind']}")
     if not is_parent() and r['id'] is not None:
         yes=st.checkbox('이 기록 삭제')
@@ -485,7 +491,7 @@ def week_calendar(home):
     c.button('›',key='cal_next',on_click=month_move,args=(1,),use_container_width=True)
     chosen_day=st.session_state.get('calendar_day',today());chosen=week_start(chosen_day)
     # Actual logged days only. Timer totals have already been synchronized by rewards.
-    studied={r['day'] for r in query('SELECT day FROM logs WHERE home=? UNION SELECT day FROM timer_days WHERE home=? AND seconds>=60',(home,home))}
+    studied={r['day'] for r in query('SELECT day FROM logs WHERE home=? UNION SELECT day FROM timer_days WHERE home=? AND seconds>=1',(home,home))}
     with st.container(key='calendar'):
         cols=st.columns(7)
         for col,name in zip(cols,['월','화','수','목','금','토','일']):col.caption(name)
