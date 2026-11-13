@@ -161,7 +161,7 @@ def auth():
     st.markdown('<div class="brand">ODID</div>',unsafe_allow_html=True)
     mode=st.segmented_control('접속',['로그인','가입'],default='로그인',label_visibility='collapsed')
     with st.form('auth'):
-        uid=st.text_input('가족 아이디 · 영문 입력',placeholder='영문·숫자·밑줄 3~24자',max_chars=24).strip().lower()
+        uid=st.text_input('가족 아이디',placeholder='영문·숫자',max_chars=24).strip().lower()
         if mode=='로그인':
             role=st.segmented_control('역할',['학생','부모님'],default='학생',label_visibility='collapsed')
             pw=st.text_input('비밀번호',type='password',max_chars=128)
