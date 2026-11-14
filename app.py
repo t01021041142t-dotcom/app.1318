@@ -645,6 +645,8 @@ def main():
 
     .st-key-calendar .calendar_weekday{height:26px;line-height:26px;text-align:center;margin:0 0 5px;white-space:nowrap;color:#8B7774;font-size:12px}
     .st-key-calendar [data-testid="stHorizontalBlock"]{margin-bottom:4px!important;align-items:center!important}
+
+    .st-key-rewards_screen h3{margin:0 0 14px!important;padding:0!important;line-height:1.4!important}
     </style>''',unsafe_allow_html=True)
     init_extra()
     init_timer_subject()
