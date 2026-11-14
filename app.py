@@ -384,8 +384,26 @@ def topics_dialog(e,parent):
             else:execute('DELETE FROM topic_completions WHERE home=? AND topic=? AND day=?',(st.session_state.home,r['id'],str(today())))
             st.rerun()
 
+def strategy_store():
+    execute('CREATE TABLE IF NOT EXISTS saved_strategies(home TEXT NOT NULL,exam INTEGER NOT NULL,body TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(home,exam))')
+
+def save_strategy(home,exam,text):
+    strategy_store()
+    execute('INSERT INTO saved_strategies(home,exam,body,updated) VALUES(?,?,?,?) ON CONFLICT(home,exam) DO UPDATE SET body=excluded.body,updated=excluded.updated',(home,exam,text,str(today())))
+
 @st.dialog('✨ 전략')
 def strategy_dialog(home,e):
+    strategy_store()
+    saved=query('SELECT body,updated FROM saved_strategies WHERE home=? AND exam=?',(home,e['id']))
+    if is_parent():
+        if saved:
+            st.caption('자녀가 만든 전략 · '+saved[0]['updated'])
+            st.write(saved[0]['body'])
+        else:st.info('아직 자녀가 만든 학습 전략이 없어요.')
+        return
+    if saved:
+        st.caption('저장된 전략')
+        st.write(saved[0]['body'])
     ts=query('SELECT * FROM topics WHERE exam=? ORDER BY id',(e['id'],))
     request=st.text_area('학습 요청',height=80,placeholder='암기가 약해요. 하루 1시간으로 계획해 줘.')
     key=config('GEMINI_API_KEY');model=config('GEMINI_MODEL') or 'gemini-3.5-flash'
@@ -393,12 +411,14 @@ def strategy_dialog(home,e):
         if not st.button('요청 보내기 · 전략 만들기',type='primary',use_container_width=True):return
         blocks=phase_plan(e,ts);current=next((r for r in blocks if r[0]<=today()<=r[1]),blocks[-1])
         left=sum(not r['done'] for r in ts);days=max(1,(date.fromisoformat(e['due'])-today()).days+1)
-        st.write(f'**{current[2]}** · 하루 범위 {max(1,(left+days-1)//days)}개' if left else '**범위 완료 · 오답을 다시 확인하세요.**')
+        headline=f'**{current[2]}** · 하루 범위 {max(1,(left+days-1)//days)}개' if left else '**범위 완료 · 오답을 다시 확인하세요.**'
         tips={'개념 익히기':'개념을 읽고 책을 덮은 뒤 핵심을 설명하세요.','복습 · 확인':'어제 내용을 떠올리고 틀린 부분을 다시 확인하세요.','시험 집중':'시간을 재고 문제를 푼 뒤 오답 원인을 정리하세요.'}
-        if any(w in request for w in ['암기','외우']):st.write('암기 → 책 덮고 떠올리기 → 다음 날 다시 확인하기 순서로 반복하세요.')
-        elif '오답' in request:st.write('틀린 문제를 다시 풀고, 틀린 이유와 필요한 개념을 한 줄로 정리하세요.')
-        else:st.write(tips[current[2]])
-        st.caption('규칙 기반 자동 계획 · 암기·오답 요청 반영')
+        if any(w in request for w in ['암기','외우']):tip='암기 → 책 덮고 떠올리기 → 다음 날 다시 확인하기 순서로 반복하세요.'
+        elif '오답' in request:tip='틀린 문제를 다시 풀고, 틀린 이유와 필요한 개념을 한 줄로 정리하세요.'
+        else:tip=tips[current[2]]
+        text=headline+'\n\n'+tip
+        save_strategy(home,e['id'],text)
+        st.write(text)
         return
     consent=st.checkbox('시험 범위·남은 기간·최근 등급을 Gemini로 보내는 데 동의해요.')
     if st.button('맞춤 전략 만들기',disabled=not consent,type='primary',use_container_width=True):
@@ -412,6 +432,7 @@ def strategy_dialog(home,e):
                 parts=response.json()['candidates'][0]['content']['parts']
                 text='\n'.join(part['text'] for part in parts if isinstance(part.get('text'),str) and not part.get('thought'))
                 if not text.strip():raise ValueError()
+                save_strategy(home,e['id'],text[:1200])
                 st.session_state[f"ai{e['id']}"]=text[:1200]
         except requests.HTTPError:
             st.error('Gemini 연결에 실패했어요. API 키·사용 가능한 모델·이용 한도를 확인해 주세요.')
@@ -458,7 +479,7 @@ def plans(home,parent):
         if st.button('＋ 과목·범위 추가',use_container_width=True):exam_dialog(home,e)
     a,b=st.columns(2)
     if a.button('📋 범위 확인',use_container_width=True):topics_dialog(e,parent)
-    if b.button('✨ 전략',use_container_width=True):strategy_dialog(home,e)
+    if b.button('📖 자녀 전략 보기' if parent else '✨ 전략',use_container_width=True):strategy_dialog(home,e)
     if not parent and st.button('시험 삭제',use_container_width=True):delete_exam(e)
 
 @st.dialog('↗ 성적 입력')
