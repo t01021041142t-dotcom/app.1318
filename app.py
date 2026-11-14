@@ -574,7 +574,8 @@ def rewards_body(home,h,parent):
     mins=total_for_week(home,chosen);claims=query('SELECT * FROM claims WHERE home=? AND week=?',(home,str(chosen)))
     goal=claims[0]['goal'] if claims else h['goal'];reward=claims[0]['reward'] if claims else h['reward']
     st.write(f'**{duration(mins)} / {duration(goal)}**')
-    st.progress(min(1.,mins/max(goal,1)));st.write(f'보상 **{reward:,}원**')
+    st.progress(min(1.,mins/max(goal,1)))
+    st.markdown(f'<div class="reward_amount">보상 <b>{reward:,}원</b></div>',unsafe_allow_html=True)
     if parent and st.button('💰 용돈 설정',use_container_width=True):allowance_dialog(home,h)
     if not claims:
         if not parent and st.button('보상 확인 요청',disabled=mins<goal,use_container_width=True,type='primary'):
@@ -639,6 +640,9 @@ def main():
     .st-key-rewards_screen .st-key-calendar button p{font-size:12px!important}
     .st-key-rewards_screen [data-testid="stCaptionContainer"] p{font-size:11px!important}
     @media(max-height:700px){.st-key-rewards_screen .st-key-calendar button{height:23px!important;min-height:23px!important}.st-key-rewards_screen [data-testid="stVerticalBlock"]{gap:.12rem!important}}
+
+    .st-key-rewards_screen .reward_amount{display:block;line-height:1.5;min-height:30px;padding:3px 0 8px;margin:0 0 8px;box-sizing:border-box;position:relative}
+    .st-key-rewards_screen [data-testid="stButton"]{margin-top:4px!important}
     </style>''',unsafe_allow_html=True)
     init_extra()
     init_timer_subject()
