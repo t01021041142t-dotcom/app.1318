@@ -548,16 +548,15 @@ def week_calendar(home):
     # Actual logged days only. Timer totals have already been synchronized by rewards.
     studied={r['day'] for r in query('SELECT day FROM logs WHERE home=? UNION SELECT day FROM timer_days WHERE home=? AND seconds>=1',(home,home))}
     seconds_by_day={r['day']:r['seconds'] for r in query('SELECT day,seconds FROM timer_days WHERE home=?',(home,))}
-    st.caption('🟢 2시간↑ · 🟡 1시간↑ · 🔴 1시간 미만')
     with st.container(key='calendar'):
         cols=st.columns(7)
-        for col,name in zip(cols,['월','화','수','목','금','토','일']):col.caption(name)
+        for col,name in zip(cols,['월','화','수','목','금','토','일']):col.markdown(f'<div class="calendar_weekday">{name}</div>',unsafe_allow_html=True)
         for week in calendar.Calendar(firstweekday=0).monthdatescalendar(base.year,base.month):
             cols=st.columns(7)
             for col,d in zip(cols,week):
                 if d.month!=base.month:col.write('');continue
                 sec=seconds_by_day.get(str(d),0)
-                label=str(d.day)+('🟢' if sec>=7200 else '🟡' if sec>=3600 else '🔴' if sec>0 else '')
+                label=str(d.day)
                 if col.button(label,key=f'cal_{d}',type='primary' if d==chosen_day else 'secondary',use_container_width=True,on_click=select_day,args=(d,)):
                     calendar_detail(home,d)
     return chosen
@@ -643,6 +642,9 @@ def main():
 
     .st-key-rewards_screen .reward_amount{display:block;line-height:1.5;min-height:30px;padding:3px 0 8px;margin:0 0 8px;box-sizing:border-box;position:relative}
     .st-key-rewards_screen [data-testid="stButton"]{margin-top:4px!important}
+
+    .st-key-calendar .calendar_weekday{height:26px;line-height:26px;text-align:center;margin:0 0 5px;white-space:nowrap;color:#8B7774;font-size:12px}
+    .st-key-calendar [data-testid="stHorizontalBlock"]{margin-bottom:4px!important;align-items:center!important}
     </style>''',unsafe_allow_html=True)
     init_extra()
     init_timer_subject()
