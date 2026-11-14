@@ -542,11 +542,13 @@ def week_calendar(home):
     a.button('‹',key='cal_previous',on_click=month_move,args=(-1,),use_container_width=True)
     b.markdown(f'**{base.year}년 {base.month}월**')
     c.button('›',key='cal_next',on_click=month_move,args=(1,),use_container_width=True)
+    def select_day(d):
+        st.session_state.calendar_day=d
     chosen_day=st.session_state.get('calendar_day',today());chosen=week_start(chosen_day)
     # Actual logged days only. Timer totals have already been synchronized by rewards.
     studied={r['day'] for r in query('SELECT day FROM logs WHERE home=? UNION SELECT day FROM timer_days WHERE home=? AND seconds>=1',(home,home))}
     seconds_by_day={r['day']:r['seconds'] for r in query('SELECT day,seconds FROM timer_days WHERE home=?',(home,))}
-    st.caption('🟢 2시간↑ · 🟡 1시간↑ · 🔴 1시간 미만 · 빈칸: 기록 없음')
+    st.caption('🟢 2시간↑ · 🟡 1시간↑ · 🔴 1시간 미만')
     with st.container(key='calendar'):
         cols=st.columns(7)
         for col,name in zip(cols,['월','화','수','목','금','토','일']):col.caption(name)
@@ -556,11 +558,15 @@ def week_calendar(home):
                 if d.month!=base.month:col.write('');continue
                 sec=seconds_by_day.get(str(d),0)
                 label=str(d.day)+('🟢' if sec>=7200 else '🟡' if sec>=3600 else '🔴' if sec>0 else '')
-                if col.button(label,key=f'cal_{d}',type='primary' if week_start(d)==chosen else 'secondary',use_container_width=True):
-                    st.session_state.calendar_day=d;calendar_detail(home,d)
+                if col.button(label,key=f'cal_{d}',type='primary' if d==chosen_day else 'secondary',use_container_width=True,on_click=select_day,args=(d,)):
+                    calendar_detail(home,d)
     return chosen
 
 def rewards(home,h,parent):
+    with st.container(key="rewards_screen"):
+        rewards_body(home,h,parent)
+
+def rewards_body(home,h,parent):
     st.markdown('### 자녀 주간 약속' if parent else '### 주간 약속')
     timer_tick(home)
     chosen=week_calendar(home)
@@ -623,6 +629,16 @@ def main():
     [role="dialog"]{max-height:calc(100dvh - 24px)!important;margin:12px auto!important}
     [role="dialog"] [data-testid="stVerticalBlock"]{gap:.5rem}
     @media(max-height:720px){.block-container{padding-top:5rem}h3{font-size:21px!important;margin:0!important;padding:.2rem 0!important}[data-testid="stVerticalBlock"]{gap:.4rem}[data-testid="stMetric"]{padding:5px}div.stButton>button{min-height:36px}}
+
+    .block-container:has(.st-key-rewards_screen){padding-top:4.5rem!important;padding-bottom:5.5rem!important}
+    .st-key-rewards_screen [data-testid="stVerticalBlock"]{gap:.22rem!important}
+    .st-key-rewards_screen h3{margin:0!important;padding:0!important;font-size:22px!important}
+    .st-key-rewards_screen p{margin-bottom:0!important}
+    .st-key-rewards_screen .st-key-calendar [data-testid="stHorizontalBlock"]{gap:3px!important}
+    .st-key-rewards_screen .st-key-calendar button{height:27px!important;min-height:27px!important;padding:0!important}
+    .st-key-rewards_screen .st-key-calendar button p{font-size:12px!important}
+    .st-key-rewards_screen [data-testid="stCaptionContainer"] p{font-size:11px!important}
+    @media(max-height:700px){.st-key-rewards_screen .st-key-calendar button{height:23px!important;min-height:23px!important}.st-key-rewards_screen [data-testid="stVerticalBlock"]{gap:.12rem!important}}
     </style>''',unsafe_allow_html=True)
     init_extra()
     init_timer_subject()
