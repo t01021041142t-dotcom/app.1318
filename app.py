@@ -52,7 +52,7 @@ def week_start(d): return d-timedelta(days=d.weekday())
 def signal(minutes,goal,day):
     expected=goal*(day.weekday()+1)/7
     rate=minutes/max(expected,1)
-    return ('🟢','좋은 흐름이에요') if rate>=1 else (('🟡','조금씩 따라가요') if rate>=.65 else ('🔴','오늘부터 차근차근'))
+    return ('🟢','목표 페이스 달성! 계속 유지해요') if rate>=1 else (('🟡','목표보다 늦어요 · 지금 보충해요') if rate>=.65 else ('🔴','목표 페이스 부족 · 지금 공부를 시작하세요'))
 def phase_plan(exam,topics):
     start=date.fromisoformat(exam['created']); due=date.fromisoformat(exam['due'])
     span=max(1,(due-start).days+1)
@@ -386,24 +386,32 @@ def topics_dialog(e,parent):
 
 def strategy_store():
     execute('CREATE TABLE IF NOT EXISTS saved_strategies(home TEXT NOT NULL,exam INTEGER NOT NULL,body TEXT NOT NULL,updated TEXT NOT NULL,PRIMARY KEY(home,exam))')
+    execute('CREATE TABLE IF NOT EXISTS strategy_history(id INTEGER PRIMARY KEY AUTOINCREMENT,home TEXT NOT NULL,exam INTEGER NOT NULL,request TEXT NOT NULL,body TEXT NOT NULL,updated TEXT NOT NULL)')
+    execute("INSERT INTO strategy_history(home,exam,request,body,updated) SELECT s.home,s.exam,'이전 요청',s.body,s.updated FROM saved_strategies s WHERE NOT EXISTS (SELECT 1 FROM strategy_history h WHERE h.home=s.home AND h.exam=s.exam)")
 
-def save_strategy(home,exam,text):
+def save_strategy(home,exam,text,request=''):
     strategy_store()
+    execute('INSERT INTO strategy_history(home,exam,request,body,updated) VALUES(?,?,?,?,?)',(home,exam,request,text,datetime.now(TZ).isoformat(timespec='seconds')))
     execute('INSERT INTO saved_strategies(home,exam,body,updated) VALUES(?,?,?,?) ON CONFLICT(home,exam) DO UPDATE SET body=excluded.body,updated=excluded.updated',(home,exam,text,str(today())))
 
 @st.dialog('✨ 전략')
 def strategy_dialog(home,e):
     strategy_store()
-    saved=query('SELECT body,updated FROM saved_strategies WHERE home=? AND exam=?',(home,e['id']))
-    if is_parent():
-        if saved:
-            st.caption('자녀가 만든 전략 · '+saved[0]['updated'])
-            st.write(saved[0]['body'])
-        else:st.info('아직 자녀가 만든 학습 전략이 없어요.')
-        return
-    if saved:
-        st.caption('저장된 전략')
-        st.write(saved[0]['body'])
+    history=query('SELECT * FROM strategy_history WHERE home=? AND exam=? ORDER BY id DESC',(home,e['id']))
+    if history:
+        item=st.selectbox('이전 요청 · 답변',history,format_func=lambda r:f"{r['updated'][:16].replace('T',' ')} · {r['request'][:45] or '학습 전략'}",key=f"strategy_history_{e['id']}")
+        st.caption('요청');st.write(item['request'] or '이전 요청 내용 없음')
+        st.caption('전략');st.write(item['body'])
+        if not is_parent():
+            confirm=st.checkbox('선택한 기록 삭제 확인',key=f"delete_strategy_{item['id']}")
+            if st.button('🗑 선택 기록 삭제',disabled=not confirm,key=f"delete_strategy_btn_{item['id']}"):
+                execute('DELETE FROM strategy_history WHERE id=? AND home=? AND exam=?',(item['id'],home,e['id']))
+                remaining=query('SELECT * FROM strategy_history WHERE home=? AND exam=? ORDER BY id DESC LIMIT 1',(home,e['id']))
+                execute('DELETE FROM saved_strategies WHERE home=? AND exam=?',(home,e['id']))
+                if remaining:execute('INSERT INTO saved_strategies(home,exam,body,updated) VALUES(?,?,?,?)',(home,e['id'],remaining[0]['body'],remaining[0]['updated']))
+                st.rerun()
+    elif is_parent():st.info('아직 자녀가 만든 학습 전략이 없어요.')
+    if is_parent():return
     ts=query('SELECT * FROM topics WHERE exam=? ORDER BY id',(e['id'],))
     request=st.text_area('학습 요청',height=80,placeholder='암기가 약해요. 하루 1시간으로 계획해 줘.')
     key=config('GEMINI_API_KEY');model=config('GEMINI_MODEL') or 'gemini-3.5-flash'
@@ -421,7 +429,7 @@ def strategy_dialog(home,e):
         if re.search('암기|외우|기억',request):lines+=['**복습 간격**','- 오늘 학습 후, 다음 날, 3일 뒤에 책을 덮고 떠올려 보세요.']
         lines+=['**시험까지**',f'- 남은 {days}일 기준으로 미완료 범위를 나누고, 시험 전날에는 새 범위보다 오답을 확인하세요.' if days else '- 목표 날짜가 오늘이거나 지났어요. 다음 시험 날짜를 확인하세요.']
         text='\n\n'.join(lines)
-        save_strategy(home,e['id'],text)
+        save_strategy(home,e['id'],text,request)
         st.caption('자동 전략 · AI 미연결 / 과목·키워드 기반')
         st.write(text)
         st.info('긴 요청의 세부 맥락까지 반영하려면 Gemini 연결이 필요해요. ⓘ → AI에서 설정을 확인하세요.')
@@ -438,7 +446,7 @@ def strategy_dialog(home,e):
                 parts=response.json()['candidates'][0]['content']['parts']
                 text='\n'.join(part['text'] for part in parts if isinstance(part.get('text'),str) and not part.get('thought'))
                 if not text.strip():raise ValueError()
-                save_strategy(home,e['id'],text[:5000])
+                save_strategy(home,e['id'],text[:5000],request)
                 st.session_state[f"ai{e['id']}"]=text[:5000]
         except requests.HTTPError:
             st.error('Gemini 연결에 실패했어요. API 키·사용 가능한 모델·이용 한도를 확인해 주세요.')
@@ -674,6 +682,12 @@ def main():
     .st-key-calendar [data-testid="stHorizontalBlock"]{margin-bottom:4px!important;align-items:center!important}
 
     .st-key-rewards_screen h3{margin:0 0 14px!important;padding:0!important;line-height:1.4!important}
+
+    /* Keep long strategy answers above fixed navigation, with their own scroll area. */
+    [data-testid="stDialog"]{z-index:10000!important}
+    [role="dialog"]{max-height:calc(100dvh - 32px)!important;overflow-y:auto!important;overscroll-behavior:contain;padding-bottom:24px!important}
+    [role="dialog"] [data-testid="stVerticalBlock"]{max-height:none!important;overflow:visible!important}
+    [role="dialog"] [data-testid="stMarkdownContainer"]{overflow-wrap:anywhere!important}
     </style>''',unsafe_allow_html=True)
     init_extra()
     init_timer_subject()
