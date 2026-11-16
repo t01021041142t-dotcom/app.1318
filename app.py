@@ -489,8 +489,22 @@ def plans(home,parent):
     for start,end,label in phase_plan(e,[]):
         mark=' ●' if start<=today()<=end else ''
         st.caption(f'{label}{mark}  {start:%m/%d}–{end:%m/%d}')
-    if not parent and not query('SELECT 1 FROM topics WHERE exam=?',(e['id'],)):
-        if st.button('＋ 과목·범위 추가',use_container_width=True):exam_dialog(home,e)
+    if not parent:
+        with st.form(f'inline_range_{e["id"]}',clear_on_submit=True):
+            left,right=st.columns([1,2])
+            subject=left.text_input('과목',placeholder='과목')
+            scope=right.text_input('추가할 시험 범위',placeholder='범위 입력')
+            add=st.form_submit_button('＋ 범위 추가',use_container_width=True)
+        if add:
+            if not subject.strip() or not scope.strip():
+                st.warning('과목과 범위를 입력해 주세요.')
+            else:
+                with db() as c:
+                    owner=c.execute('SELECT 1 FROM exams WHERE id=? AND home=?',(e['id'],home)).fetchone()
+                    if owner:
+                        exists=c.execute('SELECT 1 FROM topics WHERE exam=? AND subject=? AND title=?',(e['id'],subject.strip(),scope.strip())).fetchone()
+                        if not exists:c.execute('INSERT INTO topics(exam,subject,title) VALUES(?,?,?)',(e['id'],subject.strip(),scope.strip()))
+                st.rerun()
     a,b=st.columns(2)
     if a.button('📋 범위 확인',use_container_width=True):topics_dialog(e,parent)
     if b.button('📖 자녀 전략 보기' if parent else '✨ 전략',use_container_width=True):strategy_dialog(home,e)
