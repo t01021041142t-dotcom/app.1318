@@ -375,7 +375,10 @@ def topics_dialog(e,parent):
         return
     st.caption(r['subject']);st.write(r['title'])
     if parent:
-        st.success('✓ 학습 완료') if r['done'] else st.caption('○ 아직 학습 중')
+        if r['done']:
+            st.success('✓ 학습 완료')
+        else:
+            st.caption('○ 아직 학습 중')
     else:
         done=st.checkbox('학습 완료',value=bool(r['done']),key=f"done{r['id']}")
         if done!=bool(r['done']):
