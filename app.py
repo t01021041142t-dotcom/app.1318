@@ -583,6 +583,13 @@ def week_calendar(home):
     # Actual logged days only. Timer totals have already been synchronized by rewards.
     studied={r['day'] for r in query('SELECT day FROM logs WHERE home=? UNION SELECT day FROM timer_days WHERE home=? AND seconds>=1',(home,home))}
     seconds_by_day={r['day']:r['seconds'] for r in query('SELECT day,seconds FROM timer_days WHERE home=?',(home,))}
+    exams=current_exam(home)
+    stages=phase_plan(exams[0],[]) if exams else []
+    palette={'개념 익히기':('#E4EEF9','#345C83'),'복습 · 확인':('#FFF0CD','#805C16'),'시험 집중':('#F9DFE3','#9A3E53')}
+    styles=[]
+    if stages:
+        st.caption(exams[0]['title'])
+        st.markdown(' · '.join(f'<span style="color:{palette[n][1]};background:{palette[n][0]};padding:2px 5px;border-radius:5px;font-size:11px">{n} {a:%m/%d}–{b:%m/%d}</span>' for a,b,n in stages),unsafe_allow_html=True)
     with st.container(key='calendar'):
         cols=st.columns(7)
         for col,name in zip(cols,['월','화','수','목','금','토','일']):col.markdown(f'<div class="calendar_weekday">{name}</div>',unsafe_allow_html=True)
@@ -592,8 +599,13 @@ def week_calendar(home):
                 if d.month!=base.month:col.write('');continue
                 sec=seconds_by_day.get(str(d),0)
                 label=str(d.day)
+                stage=next((n for a,b,n in stages if a<=d<=b),None)
+                if stage:
+                    bg,fg=palette[stage]
+                    styles.append(f'.st-key-cal_{d} button{{background:{bg}!important;color:{fg}!important;border:2px solid {fg if d==chosen_day else bg}!important;}}')
                 if col.button(label,key=f'cal_{d}',type='primary' if d==chosen_day else 'secondary',use_container_width=True,on_click=select_day,args=(d,)):
                     calendar_detail(home,d)
+    if styles:st.markdown('<style>'+''.join(styles)+'</style>',unsafe_allow_html=True)
     return chosen
 
 def rewards(home,h,parent):
