@@ -589,7 +589,11 @@ def week_calendar(home):
     styles=[]
     if stages:
         st.caption(exams[0]['title'])
-        st.markdown(' · '.join(f'<span style="color:{palette[n][1]};background:{palette[n][0]};padding:2px 5px;border-radius:5px;font-size:11px">{n} {a:%m/%d}–{b:%m/%d}</span>' for a,b,n in stages),unsafe_allow_html=True)
+        legend=[]
+        for start,end,name in stages:
+            bg,fg=palette[name]
+            legend.append(f'<div style="flex:1;min-width:0;text-align:center"><div style="font-size:11px;color:{fg};font-weight:600;white-space:nowrap">● {esc(name)}</div><div style="font-size:10px;color:#998D8A;margin-top:3px">{start:%m/%d}–{end:%m/%d}</div></div>')
+        st.markdown('<div style="display:flex;gap:8px;padding:8px 0 13px;margin-bottom:6px;border-bottom:1px solid #EDE7E4">'+''.join(legend)+'</div>',unsafe_allow_html=True)
     with st.container(key='calendar'):
         cols=st.columns(7)
         for col,name in zip(cols,['월','화','수','목','금','토','일']):col.markdown(f'<div class="calendar_weekday">{name}</div>',unsafe_allow_html=True)
